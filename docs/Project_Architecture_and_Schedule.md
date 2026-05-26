@@ -5,14 +5,14 @@
     20개 기능 요구사항을 굵직한 **6개 기술 분야**로 묶었다. 이 구분은 그대로 자바 패키지 구조(`audio` / `api` / `db` / `ui` / `io` / `common`)와 이어지며, 비기능 요구사항의 “View / Controller / Service / DB 계층 분리”와도 자연스럽게 맞물린다.
     
 
-| 기능 및 구성요소 | **포함 요구사항** | **핵심 기술 / 라이브러리** |
-| --- | --- | --- |
-| ① 오디오 캡처·재생 | F-01, F-02(파일 디코딩), F-09, F-10, F-11, F-14, F-18 | Java Sound API, Windows WASAPI loopback(JNI/JNA), 입력 장치 enumeration, 녹음 스레드, 일시정지/취소, 채널 분리 저장 |
-| ② 외부 AI API 연동 | F-02(STT 호출), F-07, F-08 | [java.net](http://java.net).http.HttpClient, STT API(Whisper / Google STT 등), LLM API(요약·맞춤법·키워드), 다국어 옵션, 비동기 호출 |
-| ③ 데이터베이스 (저장·관리) | F-04, F-05(삭제), F-12, F-15, F-16 | SQLite + JDBC, transcripts·summaries 테이블, DAO 패턴, CRUD, 검색·정렬·페이지네이션 SQL |
-| ④ 사용자 인터페이스 (UI) | F-03, F-09(레벨 미터), F-10(시간 표시), F-12(편집 UI), 화면 전환·레이아웃 전반 | Swing, SwingWorker, EDT 관리, 진행바·상태 메시지, JFileChooser, JTable(기록 목록) |
-| ⑤ 파일 입출력·내보내기 | F-05(다운로드), F-13 | [java.io](http://java.io) / java.nio, txt 저장, docx(Apache POI), srt 포맷 직접 작성 |
-| ⑥ 공통 인프라 (인증·설정·예외·로그) | F-06, F-17, F-19, F-20 | 비밀번호 해시(BCrypt), 환경변수·설정 파일 로딩, API 키 보관, 글로벌 예외 핸들러, java.util.logging / slf4j |
+| 기능 및 구성요소 | **포함 요구사항** | **핵심 기술 / 라이브러리** |  |
+| --- | --- | --- | --- |
+| ① 오디오 캡처·재생 | F-01, F-02(파일 디코딩), F-09, F-10, F-11, F-14, F-18 | Java Sound API, Windows WASAPI loopback(JNI/JNA), 입력 장치 enumeration, 녹음 스레드, 일시정지/취소, 채널 분리 저장 |  |
+| ② 외부 AI API 연동 | F-02(STT 호출), F-07, F-08 | [java.net](http://java.net).http.HttpClient, STT API(Whisper / Google STT 등), LLM API(요약·맞춤법·키워드), 다국어 옵션, 비동기 호출 |  |
+| ③ 데이터베이스 (저장·관리) | F-04, F-05(삭제), F-12, F-15, F-16 | SQLite + JDBC, transcripts·summaries 테이블, DAO 패턴, CRUD, 검색·정렬·페이지네이션 SQL |  |
+| ④ 사용자 인터페이스 (UI) | F-03, F-09(레벨 미터), F-10(시간 표시), F-12(편집 UI), 화면 전환·레이아웃 전반 | Swing, SwingWorker, EDT 관리, 진행바·상태 메시지, JFileChooser, JTable(기록 목록) |  |
+| ⑤ 파일 입출력·내보내기 | F-05(다운로드), F-13 | [java.io](http://java.io) / java.nio, txt 저장, docx(Apache POI), srt 포맷 직접 작성 |  |
+| ⑥ 공통 인프라 (인증·설정·예외·로그) | F-06, F-17, F-19, F-20 | 비밀번호 해시(BCrypt), 환경변수·설정 파일 로딩, API 키 보관, 글로벌 예외 핸들러, java.util.logging / slf4j |  |
 
 o 프로젝트 화면  
 
