@@ -1,0 +1,13 @@
+# 빌드 결과물 배제
+target/
+
+# IDE 설정 파일 배제
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+.DS_Store
+
+# API Key 설정 파일 (깃허브 업로드 절대 금지!)
+src/main/resources/config.properties
