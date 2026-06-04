@@ -13,6 +13,9 @@ public class SpeechNoteApp {
             // 실패 시 기본 자바 룩앤필 사용
         }
 
+        // 데이터베이스 생성 및 테이블 초기화
+        db.DatabaseManager.initializeDatabase();
+
         // Swing UI 요소는 Event Dispatch Thread(EDT) 위에서 안전하게 생성하고 렌더링해야 함.
         SwingUtilities.invokeLater(() -> {
             MainFrame mainFrame = new MainFrame();
