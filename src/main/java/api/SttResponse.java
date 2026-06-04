@@ -43,15 +43,47 @@ public class SttResponse {
         String text = obj.getString("text");
         List<TextSegment> segments = new ArrayList<>();
 
-        if (obj.has("segments") && !obj.isNull("segments")) {
+        // 정상적으로 segments 배열이 온 경우
+        if (obj.has("segments") && !obj.isNull("segments") && obj.get("segments") instanceof JSONArray) {
             JSONArray arr = obj.getJSONArray("segments");
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject segObj = arr.getJSONObject(i);
-                double start = segObj.getDouble("Start");
-                double end = segObj.getDouble("End");
-                String segText = segObj.getString("Content");
-                Integer speaker = segObj.has("Speaker") ? segObj.getInt("Speaker") : null;
+                double start = segObj.optDouble("Start", 0.0);
+                double end = segObj.optDouble("End", 0.0);
+                String segText = segObj.optString("Content", "");
+                Integer speaker = segObj.has("Speaker") && !segObj.isNull("Speaker") ? segObj.getInt("Speaker") : null;
                 segments.add(new TextSegment(start, end, segText, speaker));
+            }
+        } 
+        // 서버 측 오류로 text 필드 안에 JSON 배열 문자열이 그대로 담겨서 온 경우의 예외 처리 (Fallback)
+        else if (text.contains("[{\"Start\"") || text.contains("[{\"Start\":")) {
+            int startIndex = text.indexOf('[');
+            int endIndex = text.lastIndexOf(']');
+            if (startIndex != -1 && endIndex != -1) {
+                String jsonStr = text.substring(startIndex, endIndex + 1);
+                try {
+                    JSONArray arr = new JSONArray(jsonStr);
+                    StringBuilder cleanText = new StringBuilder();
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject segObj = arr.getJSONObject(i);
+                        double start = segObj.optDouble("Start", 0.0);
+                        double end = segObj.optDouble("End", 0.0);
+                        String segText = segObj.optString("Content", "");
+                        Integer speaker = segObj.has("Speaker") && !segObj.isNull("Speaker") ? segObj.getInt("Speaker") : null;
+                        
+                        segments.add(new TextSegment(start, end, segText, speaker));
+                        
+                        // [Silence] 같은 메타 태그는 전체 텍스트에서 제외
+                        if (!segText.trim().isEmpty() && !segText.contains("[Silence]")) {
+                            if (cleanText.length() > 0) cleanText.append(" ");
+                            cleanText.append(segText.trim());
+                        }
+                    }
+                    // 지저분한 원본 텍스트를 파싱된 깔끔한 텍스트로 덮어씌움
+                    text = cleanText.toString();
+                } catch (Exception e) {
+                    System.err.println("JSON Fallback 파싱 실패: " + e.getMessage());
+                }
             }
         }
 
