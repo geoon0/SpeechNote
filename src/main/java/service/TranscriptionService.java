@@ -1,11 +1,13 @@
 package service;
 
 import api.SttClient;
+import api.SttResponse;
 import common.TranscriptResult;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 외부 모듈 연동을 위한 단일 진입점 서비스 클래스임.
@@ -23,16 +25,29 @@ public class TranscriptionService {
      * @return 식별 고유 ID와 현재 시각, 텍스트가 바인딩된 TranscriptResult 결과 객체
      */
     public TranscriptResult transcribeFile(Path audioFile, String language) {
-        // API 클라이언트를 호출하여 음성 변환 텍스트를 획득함.
-        String text = sttClient.transcribe(audioFile, language);
+        // API 클라이언트를 호출하여 음성 변환 응답을 획득함.
+        SttResponse response = sttClient.transcribe(audioFile, language);
 
         // 고유 UUID 및 현재 타임스탬프를 부여하여 최종 TranscriptResult 객체를 빌드함.
         return new TranscriptResult(
                 UUID.randomUUID().toString(),
                 "FILE",
                 language,
-                text,
+                response.getSegments(),
+                response.getText(),
                 Instant.now()
         );
     }
+
+    /**
+     * 로컬 음성 파일을 Whisper API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 비동기적으로 반환함.
+     * @param audioFile 변환 처리를 진행할 로컬 음성 파일(.wav)의 Path 객체
+     * @param language 인식 대상 언어 정보 (예: "ko", "en")
+     * @return TranscriptResult 결과를 담은 CompletableFuture 객체
+     */
+    public CompletableFuture<TranscriptResult> transcribeFileAsync(Path audioFile, String language) {
+        // 비동기 스레드 풀에서 동기 변환 작업을 실행하도록 위임함.
+        return CompletableFuture.supplyAsync(() -> transcribeFile(audioFile, language));
+    }
 }
+

@@ -1,6 +1,7 @@
 package common;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * STT 음성 변환 요청의 최종 결과 데이터를 담는 객체임.
@@ -16,9 +17,12 @@ public class TranscriptResult {
     
     // 변환된 음성의 언어 코드 (ISO 639-1 규격, 예: "ko", "en")
     private final String language;
+
+    // 시간대별 텍스트 변환 정보 목록
+    private final List<Segment> segments;
     
     // API로부터 최종 변환되어 넘어온 전체 텍스트 내용
-    private final String text;
+    private final String rawText;
     
     // 이 변환 결과가 생성된 로컬 타임스탬프 시각 정보
     private final Instant createdAt;
@@ -26,11 +30,12 @@ public class TranscriptResult {
     /**
      * 모든 필드를 한 번에 받아 불변 상태로 초기화하는 생성자임.
      */
-    public TranscriptResult(String id, String source, String language, String text, Instant createdAt) {
+    public TranscriptResult(String id, String source, String language, List<Segment> segments, String rawText, Instant createdAt) {
         this.id = id;
         this.source = source;
         this.language = language;
-        this.text = text;
+        this.segments = segments;
+        this.rawText = rawText;
         this.createdAt = createdAt;
     }
 
@@ -46,11 +51,16 @@ public class TranscriptResult {
         return language;
     }
 
-    public String getText() {
-        return text;
+    public List<Segment> getSegments() {
+        return segments;
+    }
+
+    public String getRawText() {
+        return rawText;
     }
 
     public Instant getCreatedAt() {
         return createdAt;
     }
 }
+
