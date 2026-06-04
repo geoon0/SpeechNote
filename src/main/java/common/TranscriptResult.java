@@ -19,7 +19,7 @@ public class TranscriptResult {
     private final String language;
 
     // 시간대별 텍스트 변환 정보 목록
-    private final List<Segment> segments;
+    private final List<TextSegment> segments;
     
     // API로부터 최종 변환되어 넘어온 전체 텍스트 내용
     private final String rawText;
@@ -30,7 +30,7 @@ public class TranscriptResult {
     /**
      * 모든 필드를 한 번에 받아 불변 상태로 초기화하는 생성자임.
      */
-    public TranscriptResult(String id, String source, String language, List<Segment> segments, String rawText, Instant createdAt) {
+    public TranscriptResult(String id, String source, String language, List<TextSegment> segments, String rawText, Instant createdAt) {
         this.id = id;
         this.source = source;
         this.language = language;
@@ -51,7 +51,7 @@ public class TranscriptResult {
         return language;
     }
 
-    public List<Segment> getSegments() {
+    public List<TextSegment> getSegments() {
         return segments;
     }
 

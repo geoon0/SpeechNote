@@ -16,8 +16,8 @@ public class ApiConfig {
     // 로드할 리소스 설정 파일의 경로
     private static final String CONFIG_FILE = "/config.properties";
 
-    // OpenAI Whisper API 변환 URL 주소
-    private static final String STT_URL = "https://api.openai.com/v1/audio/transcriptions";
+    // 기본 커스텀 STT API 서버 주소 (properties에 없을 시 사용됨)
+    private static final String DEFAULT_STT_URL = "https://24a2-123-212-224-99.ngrok-free.app/transcribe";
 
     // 클래스 로드 시 설정 파일을 클래스패스에서 읽어옴.
     static {
@@ -43,10 +43,10 @@ public class ApiConfig {
     }
 
     /**
-     * OpenAI Whisper API 서버의 고정 엔드포인트 URL을 제공함.
+     * STT API 서버의 엔드포인트 URL을 제공함. config 파일에서 읽거나 기본값을 사용함.
      * @return API 엔드포인트 URL 주소
      */
     public static String getSttUrl() {
-        return STT_URL;
+        return properties.getProperty("stt.api.url", DEFAULT_STT_URL);
     }
 }
