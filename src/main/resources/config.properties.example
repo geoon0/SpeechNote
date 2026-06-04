@@ -1,5 +1,5 @@
-# OpenAI API 인증을 위한 API 키 입력 템플릿 파일
+# 커스텀 STT API 서버 설정 템플릿 파일
 # 이 파일을 복사하여 같은 경로에 'config.properties' 이름을 가진 파일을 만들고,
-# 본인의 실제 OpenAI API 키(sk-...)를 적어주세요.
+# 본인의 실제 설정값을 적어주세요.
 
-api.key=sk-여기에_본인_OpenAI_키_입력
+stt.api.url=https://24a2-123-212-224-99.ngrok-free.app/transcribe

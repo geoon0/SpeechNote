@@ -1,5 +1,5 @@
 import common.TranscriptResult;
-import common.Segment;
+import common.TextSegment;
 import service.TranscriptionService;
 
 import java.nio.file.Path;
@@ -57,8 +57,9 @@ public class Demo {
         
         if (!result.getSegments().isEmpty()) {
             System.out.println("▶️ 시간대별 상세 텍스트:");
-            for (Segment seg : result.getSegments()) {
-                System.out.printf("   [%.1fs ~ %.1fs] %s\n", seg.getStartSec(), seg.getEndSec(), seg.getText());
+            for (TextSegment seg : result.getSegments()) {
+                String speakerStr = seg.getSpeaker() != null ? " (화자 " + seg.getSpeaker() + ")" : "";
+                System.out.printf("   [%.1fs ~ %.1fs]%s %s\n", seg.getStartSec(), seg.getEndSec(), speakerStr, seg.getText());
             }
         }
         System.out.println("-----------------------------------------");
