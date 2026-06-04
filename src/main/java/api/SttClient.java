@@ -3,11 +3,13 @@ package api;
 import common.ApiConfig;
 import common.ApiException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.logging.Level;
@@ -43,14 +45,13 @@ public class SttClient {
             // multipart 전송용 고유 바운더리 생성
             String boundary = "----Boundary" + System.currentTimeMillis();
 
-            // 1. multipart 본문 생성 (MultipartBodyPublisher 헬퍼 클래스 호출)
-            HttpRequest.BodyPublisher bodyPublisher = MultipartBodyPublisher.ofMultipart(audioFile, language, boundary);
+            // 1. multipart 본문 생성 (내부 헬퍼 메서드 호출)
+            HttpRequest.BodyPublisher bodyPublisher = ofMultipart(audioFile, language, boundary);
 
-            // 2. HttpRequest 객체 빌드 (URL, 인증 헤더, Content-Type, timeout 5분)
+            // 2. HttpRequest 객체 빌드 (URL, Content-Type, timeout 5분)
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(ApiConfig.getSttUrl()))
                     .timeout(Duration.ofMinutes(5))
-                    .header("Authorization", "Bearer " + ApiConfig.getApiKey())
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .POST(bodyPublisher)
                     .build();
@@ -84,6 +85,30 @@ public class SttClient {
             logger.log(Level.SEVERE, "[SttClient] STT 통신 또는 파일 입출력 중 네트워크 오류 발생함.", e);
             throw new ApiException("네트워크 오류", e);
         }
+    }
+
+    /**
+     * 파일 및 파라미터를 기반으로 Multipart 바이트 배열 바디를 생성하여 BodyPublisher로 반환함.
+     * @param file 변환을 수행할 음성 파일의 경로
+     * @param language 음성 파일의 언어 코드 (예: "ko", "en")
+     * @param boundary multipart 경계 문자열
+     * @return HTTP 요청 바디에 사용할 BodyPublisher 객체
+     * @throws IOException 파일 읽기 중 예외 발생 시
+     */
+    private static HttpRequest.BodyPublisher ofMultipart(Path file, String language, String boundary) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        // 1) file 파트 작성 (Content-Type: audio/wav, 오디오 바이트)
+        out.write(("--" + boundary + "\r\n").getBytes());
+        out.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + file.getFileName().toString() + "\"\r\n").getBytes());
+        out.write("Content-Type: audio/wav\r\n\r\n".getBytes());
+        out.write(Files.readAllBytes(file));
+        out.write("\r\n".getBytes());
+
+        // 전체 multipart 통신의 마감 바운더리 작성
+        out.write(("--" + boundary + "--\r\n").getBytes());
+
+        return HttpRequest.BodyPublishers.ofByteArray(out.toByteArray());
     }
 }
 

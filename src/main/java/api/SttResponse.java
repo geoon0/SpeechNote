@@ -1,6 +1,6 @@
 package api;
 
-import common.Segment;
+import common.TextSegment;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -17,12 +17,12 @@ public class SttResponse {
     private final String text;
 
     // 시간대별 텍스트 변환 세그먼트 목록
-    private final List<Segment> segments;
+    private final List<TextSegment> segments;
 
     /**
      * 필드를 입력받아 인스턴스를 초기화하는 생성자임.
      */
-    public SttResponse(String text, List<Segment> segments) {
+    public SttResponse(String text, List<TextSegment> segments) {
         this.text = text;
         this.segments = segments;
     }
@@ -34,17 +34,24 @@ public class SttResponse {
      */
     public static SttResponse fromJson(String json) {
         JSONObject obj = new JSONObject(json);
+        
+        String status = obj.optString("status");
+        if ("error".equals(status)) {
+            throw new common.ApiException(obj.optString("message", "알 수 없는 에러가 발생했습니다."));
+        }
+        
         String text = obj.getString("text");
-        List<Segment> segments = new ArrayList<>();
+        List<TextSegment> segments = new ArrayList<>();
 
-        if (obj.has("segments")) {
+        if (obj.has("segments") && !obj.isNull("segments")) {
             JSONArray arr = obj.getJSONArray("segments");
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject segObj = arr.getJSONObject(i);
-                double start = segObj.getDouble("start");
-                double end = segObj.getDouble("end");
-                String segText = segObj.getString("text");
-                segments.add(new Segment(start, end, segText));
+                double start = segObj.getDouble("Start");
+                double end = segObj.getDouble("End");
+                String segText = segObj.getString("Content");
+                Integer speaker = segObj.has("Speaker") ? segObj.getInt("Speaker") : null;
+                segments.add(new TextSegment(start, end, segText, speaker));
             }
         }
 
@@ -55,7 +62,7 @@ public class SttResponse {
         return text;
     }
 
-    public List<Segment> getSegments() {
+    public List<TextSegment> getSegments() {
         return segments;
     }
 }
