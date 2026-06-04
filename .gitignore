@@ -11,3 +11,7 @@ target/
 
 # API Key 설정 파일 (깃허브 업로드 절대 금지!)
 src/main/resources/config.properties
+
+# 런타임 결과물 및 로컬 DB 배제
+speechnote.db
+records/
