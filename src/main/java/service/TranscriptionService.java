@@ -17,6 +17,9 @@ public class TranscriptionService {
 
     // OpenAI API 호출을 대행하는 핵심 API 클라이언트 객체
     private final SttClient sttClient = new SttClient();
+    
+    // DB 저장소 접근 객체
+    private final db.TranscriptDao transcriptDao = new db.TranscriptDao();
 
     /**
      * 로컬 음성 파일을 Whisper API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 반환함.
@@ -29,14 +32,25 @@ public class TranscriptionService {
         SttResponse response = sttClient.transcribe(audioFile, language);
 
         // 고유 UUID 및 현재 타임스탬프를 부여하여 최종 TranscriptResult 객체를 빌드함.
-        return new TranscriptResult(
+        TranscriptResult result = new TranscriptResult(
                 UUID.randomUUID().toString(),
-                "FILE",
+                "FILE", // 추후 MIC 등 동적으로 받을 수 있게 수정 가능
                 language,
                 response.getSegments(),
                 response.getText(),
                 Instant.now()
         );
+        
+        // 변환 성공 시 백그라운드 스레드에서 자동으로 로컬 SQLite DB에 저장함.
+        try {
+            transcriptDao.saveTranscript(result);
+            System.out.println("[TranscriptionService] DB 저장 성공: " + result.getId());
+        } catch (Exception e) {
+            System.err.println("[TranscriptionService] DB 저장 실패: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return result;
     }
 
     /**
