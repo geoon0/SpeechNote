@@ -8,6 +8,8 @@ import java.util.Properties;
 
 /**
  * 프로젝트 루트 폴더의 config.properties 파일에서 API 설정을 읽고 쓰는 클래스.
+  *
+ * @author 개발자
  */
 public class ApiConfig {
 
@@ -32,7 +34,7 @@ public class ApiConfig {
             try (FileInputStream input = new FileInputStream(file)) {
                 properties.load(input);
             } catch (IOException e) {
-                System.err.println("설정 파일 로드 중 오류: " + e.getMessage());
+                LoggerUtil.logError("설정 파일 로드 중 오류", e);
             }
         } else {
             // 파일이 없으면 기본값 세팅 후 생성
@@ -51,7 +53,7 @@ public class ApiConfig {
         try (FileOutputStream output = new FileOutputStream(CONFIG_FILE)) {
             properties.store(output, "SpeechNote Configuration");
         } catch (IOException e) {
-            System.err.println("설정 파일 저장 중 오류: " + e.getMessage());
+            LoggerUtil.logError("설정 파일 저장 중 오류", e);
         }
     }
 
