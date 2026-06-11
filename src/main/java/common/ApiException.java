@@ -3,6 +3,8 @@ package common;
 /**
  * STT API 연동 과정에서 발생하는 예외를 처리하기 위한 예외 클래스임.
  * RuntimeException을 상속받아 정의됨.
+  *
+ * @author 개발자
  */
 public class ApiException extends RuntimeException {
 
