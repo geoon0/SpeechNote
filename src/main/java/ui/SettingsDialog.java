@@ -1,6 +1,7 @@
 package ui;
 
 import audio.AudioDeviceManager;
+import common.ApiConfig;
 
 import javax.sound.sampled.Mixer;
 import javax.swing.*;
@@ -8,22 +9,29 @@ import java.awt.*;
 import java.util.List;
 
 /**
- * 사용할 마이크(오디오 채널)를 선택할 수 있는 설정 팝업 창임.
+ * 사용할 마이크 및 시스템 오디오 장치 선택, API 설정을 할 수 있는 설정 팝업 창임.
  */
 public class SettingsDialog extends JDialog {
 
     private Mixer.Info selectedMicrophone;
+    private Mixer.Info selectedSystemAudio;
+    
     private JComboBox<String> micComboBox;
-    private List<Mixer.Info> microphones;
+    private JComboBox<String> sysComboBox;
+    private List<Mixer.Info> audioInputs;
+    
+    private JTextField urlField;
+    private JPasswordField keyField;
 
-    public SettingsDialog(JFrame parent, Mixer.Info currentMicrophone) {
-        super(parent, "오디오 설정", true); // Modal 창으로 띄움
+    public SettingsDialog(JFrame parent, Mixer.Info currentMicrophone, Mixer.Info currentSystemAudio) {
+        super(parent, "환경 설정", true); // Modal 창으로 띄움
         this.selectedMicrophone = currentMicrophone;
+        this.selectedSystemAudio = currentSystemAudio;
         
         initUI();
         
-        // 콤보박스가 잘리지 않도록 크기 여유있게 조정
-        setSize(450, 200);
+        // 창 크기 여유있게 조정
+        setSize(500, 350);
         setLocationRelativeTo(parent);
         setResizable(false);
     }
@@ -31,47 +39,78 @@ public class SettingsDialog extends JDialog {
     private void initUI() {
         setLayout(new BorderLayout(10, 10));
         
-        JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
+        JPanel centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 10, 20));
         
-        centerPanel.add(new JLabel("사용할 마이크 선택:"), BorderLayout.NORTH);
+        // 1. 오디오 장치 선택 영역
+        JPanel audioPanel = new JPanel(new GridLayout(4, 1, 5, 5));
+        audioPanel.add(new JLabel("사용할 마이크 선택:"));
         
-        // 연결된 마이크 목록 가져오기
-        microphones = AudioDeviceManager.getMicrophones();
-        String[] micNames = new String[microphones.size()];
-        int selectedIndex = 0;
+        audioInputs = AudioDeviceManager.getAudioInputs();
         
-        for (int i = 0; i < microphones.size(); i++) {
-            Mixer.Info info = microphones.get(i);
-            micNames[i] = info.getName();
-            // 이전에 선택해둔 마이크가 있다면 해당 인덱스로 기본 선택
+        // '사용 안 함' 옵션을 포함한 이름 배열
+        String[] micNames = new String[audioInputs.size() + 1];
+        micNames[0] = "선택 안 함 (None)";
+        int micSelectedIndex = 0;
+        int sysSelectedIndex = 0;
+        
+        for (int i = 0; i < audioInputs.size(); i++) {
+            Mixer.Info info = audioInputs.get(i);
+            micNames[i + 1] = info.getName();
             if (selectedMicrophone != null && info.getName().equals(selectedMicrophone.getName())) {
-                selectedIndex = i;
+                micSelectedIndex = i + 1;
+            }
+            if (selectedSystemAudio != null && info.getName().equals(selectedSystemAudio.getName())) {
+                sysSelectedIndex = i + 1;
             }
         }
         
         micComboBox = new JComboBox<>(micNames);
-        if (microphones.size() > 0) {
-            micComboBox.setSelectedIndex(selectedIndex);
-        } else {
-            micComboBox.addItem("사용 가능한 마이크가 없습니다");
-            micComboBox.setEnabled(false);
-        }
+        micComboBox.setSelectedIndex(micSelectedIndex);
+        audioPanel.add(micComboBox);
         
-        centerPanel.add(micComboBox, BorderLayout.CENTER);
+        audioPanel.add(new JLabel("사용할 시스템 오디오 장치 (Stereo Mix 등):"));
+        sysComboBox = new JComboBox<>(micNames);
+        sysComboBox.setSelectedIndex(sysSelectedIndex);
+        audioPanel.add(sysComboBox);
+        
+        centerPanel.add(audioPanel);
+        
+        // 2. API 설정 영역
+        JPanel apiPanel = new JPanel(new GridLayout(4, 1, 5, 5));
+        apiPanel.setBorder(BorderFactory.createEmptyBorder(15, 0, 0, 0));
+        
+        apiPanel.add(new JLabel("API Base URL:"));
+        urlField = new JTextField(ApiConfig.getSttUrl());
+        apiPanel.add(urlField);
+        
+        apiPanel.add(new JLabel("API Key:"));
+        keyField = new JPasswordField(ApiConfig.getApiKey());
+        apiPanel.add(keyField);
+        
+        centerPanel.add(apiPanel);
         add(centerPanel, BorderLayout.CENTER);
         
         // 하단 버튼부
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 20, 10, 20));
         
-        JButton saveBtn = new JButton("확인");
+        JButton saveBtn = new JButton("저장");
         JButton cancelBtn = new JButton("취소");
         
         saveBtn.addActionListener(e -> {
-            if (microphones.size() > 0) {
-                selectedMicrophone = microphones.get(micComboBox.getSelectedIndex());
-            }
+            int micIdx = micComboBox.getSelectedIndex();
+            selectedMicrophone = (micIdx == 0) ? null : audioInputs.get(micIdx - 1);
+            
+            int sysIdx = sysComboBox.getSelectedIndex();
+            selectedSystemAudio = (sysIdx == 0) ? null : audioInputs.get(sysIdx - 1);
+
+            // API 설정 저장
+            String url = urlField.getText().trim();
+            String key = new String(keyField.getPassword()).trim();
+            ApiConfig.saveConfig(url, key);
+            
             dispose();
         });
         
@@ -82,10 +121,11 @@ public class SettingsDialog extends JDialog {
         add(bottomPanel, BorderLayout.SOUTH);
     }
 
-    /**
-     * 창이 닫힌 후 사용자가 최종적으로 선택한 마이크 정보를 반환함.
-     */
     public Mixer.Info getSelectedMicrophone() {
         return selectedMicrophone;
+    }
+
+    public Mixer.Info getSelectedSystemAudio() {
+        return selectedSystemAudio;
     }
 }
