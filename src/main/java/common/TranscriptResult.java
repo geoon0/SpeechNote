@@ -24,11 +24,17 @@ public class TranscriptResult {
     // API로부터 최종 변환되어 넘어온 전체 텍스트 내용
     private final String rawText;
     
+    // LLM을 통해 생성된 요약 내용
+    private String summary;
+    
+    // LLM을 통해 추출된 키워드 (쉼표로 구분된 문자열)
+    private String keywords;
+    
     // 이 변환 결과가 생성된 로컬 타임스탬프 시각 정보
     private final Instant createdAt;
 
     /**
-     * 모든 필드를 한 번에 받아 불변 상태로 초기화하는 생성자임.
+     * 기본 필드를 받아 불변 상태로 초기화하는 생성자임.
      */
     public TranscriptResult(String id, String source, String language, List<TextSegment> segments, String rawText, Instant createdAt) {
         this.id = id;
@@ -57,6 +63,22 @@ public class TranscriptResult {
 
     public String getRawText() {
         return rawText;
+    }
+
+    public String getSummary() {
+        return summary;
+    }
+
+    public void setSummary(String summary) {
+        this.summary = summary;
+    }
+
+    public String getKeywords() {
+        return keywords;
+    }
+
+    public void setKeywords(String keywords) {
+        this.keywords = keywords;
     }
 
     public Instant getCreatedAt() {
