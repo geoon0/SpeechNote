@@ -19,7 +19,7 @@ public class TranscriptDao {
      * @param result API로부터 받은 최종 변환 결과 객체
      */
     public void saveTranscript(TranscriptResult result) throws SQLException {
-        String insertTranscript = "INSERT INTO transcripts (id, source, language, raw_text, created_at) VALUES (?, ?, ?, ?, ?)";
+        String insertTranscript = "INSERT INTO transcripts (id, source, language, raw_text, summary, keywords, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
         String insertSegment = "INSERT INTO segments (transcript_id, start_sec, end_sec, speaker, content) VALUES (?, ?, ?, ?, ?)";
 
         try (Connection conn = DatabaseManager.getConnection()) {
@@ -34,7 +34,9 @@ public class TranscriptDao {
                 tStmt.setString(2, result.getSource());
                 tStmt.setString(3, result.getLanguage());
                 tStmt.setString(4, result.getRawText());
-                tStmt.setString(5, result.getCreatedAt().toString());
+                tStmt.setString(5, result.getSummary());
+                tStmt.setString(6, result.getKeywords());
+                tStmt.setString(7, result.getCreatedAt().toString());
                 tStmt.executeUpdate();
 
                 // 2. segments 테이블 저장 (Batch 처리로 성능 향상)
@@ -84,6 +86,8 @@ public class TranscriptDao {
                     String source = rs.getString("source");
                     String language = rs.getString("language");
                     String rawText = rs.getString("raw_text");
+                    String summary = rs.getString("summary");
+                    String keywords = rs.getString("keywords");
                     Instant createdAt = Instant.parse(rs.getString("created_at"));
 
                     // 해당 트랜스크립트의 세부 세그먼트 배열 조회
@@ -99,7 +103,10 @@ public class TranscriptDao {
                         }
                     }
 
-                    results.add(new TranscriptResult(id, source, language, segments, rawText, createdAt));
+                    TranscriptResult tr = new TranscriptResult(id, source, language, segments, rawText, createdAt);
+                    tr.setSummary(summary);
+                    tr.setKeywords(keywords);
+                    results.add(tr);
                 }
             }
         }
@@ -115,6 +122,21 @@ public class TranscriptDao {
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(deleteSql)) {
             pstmt.setString(1, id);
+            pstmt.executeUpdate();
+        }
+    }
+
+    /**
+     * 특정 ID의 변환 기록에 LLM 요약과 키워드를 업데이트함.
+     * @param result 요약과 키워드가 채워진 TranscriptResult 객체
+     */
+    public void updateLlmData(TranscriptResult result) throws SQLException {
+        String updateSql = "UPDATE transcripts SET summary = ?, keywords = ? WHERE id = ?";
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
+            pstmt.setString(1, result.getSummary());
+            pstmt.setString(2, result.getKeywords());
+            pstmt.setString(3, result.getId());
             pstmt.executeUpdate();
         }
     }

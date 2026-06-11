@@ -36,9 +36,15 @@ public class DatabaseManager {
                     "source TEXT," +
                     "language TEXT," +
                     "raw_text TEXT," +
+                    "summary TEXT," +
+                    "keywords TEXT," +
                     "created_at TEXT" + // ISO-8601 포맷 타임스탬프
                     ");";
             stmt.execute(createTranscriptsTable);
+            
+            // 기존 데이터베이스 마이그레이션 (버전 관리가 없으므로 예외 무시 방식으로 컬럼 추가)
+            try { stmt.execute("ALTER TABLE transcripts ADD COLUMN summary TEXT;"); } catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE transcripts ADD COLUMN keywords TEXT;"); } catch (SQLException ignored) {}
 
             // 시간대별 화자 및 세그먼트 내용을 저장하는 테이블
             String createSegmentsTable = "CREATE TABLE IF NOT EXISTS segments (" +
