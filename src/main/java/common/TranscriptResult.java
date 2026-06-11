@@ -6,11 +6,15 @@ import java.util.List;
 /**
  * STT 음성 변환 요청의 최종 결과 데이터를 담는 객체임.
  * final 필드와 getter로 구성된 불변 클래스로 설계됨.
+  *
+ * @author 개발자
  */
 public class TranscriptResult {
 
     // 변환 결과 데이터의 고유 식별값 (UUID 문자열)
     private final String id;
+    
+    private final String userId;
     
     // 음성의 입력 유형 (예: "FILE", "MIC", "SYSTEM", "MIX")
     private final String source;
@@ -29,6 +33,8 @@ public class TranscriptResult {
     
     // LLM을 통해 추출된 키워드 (쉼표로 구분된 문자열)
     private String keywords;
+    private String memo;
+    private String audioPath;
     
     // 이 변환 결과가 생성된 로컬 타임스탬프 시각 정보
     private final Instant createdAt;
@@ -36,8 +42,9 @@ public class TranscriptResult {
     /**
      * 기본 필드를 받아 불변 상태로 초기화하는 생성자임.
      */
-    public TranscriptResult(String id, String source, String language, List<TextSegment> segments, String rawText, Instant createdAt) {
+    public TranscriptResult(String id, String userId, String source, String language, List<TextSegment> segments, String rawText, Instant createdAt) {
         this.id = id;
+        this.userId = userId;
         this.source = source;
         this.language = language;
         this.segments = segments;
@@ -47,6 +54,10 @@ public class TranscriptResult {
 
     public String getId() {
         return id;
+    }
+
+    public String getUserId() {
+        return userId;
     }
 
     public String getSource() {
@@ -79,6 +90,22 @@ public class TranscriptResult {
 
     public void setKeywords(String keywords) {
         this.keywords = keywords;
+    }
+
+    public String getMemo() {
+        return memo;
+    }
+
+    public void setMemo(String memo) {
+        this.memo = memo;
+    }
+
+    public String getAudioPath() {
+        return audioPath;
+    }
+
+    public void setAudioPath(String audioPath) {
+        this.audioPath = audioPath;
     }
 
     public Instant getCreatedAt() {
