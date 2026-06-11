@@ -12,24 +12,24 @@ import java.util.List;
 public class AudioDeviceManager {
 
     /**
-     * 녹음이 가능한 입력 장치(마이크) 목록을 조회하여 반환함.
-     * @return 마이크 역할을 수행할 수 있는 Mixer.Info 리스트
+     * 녹음이 가능한 입력 장치(마이크 및 시스템 오디오) 목록을 조회하여 반환함.
+     * @return 입력 역할을 수행할 수 있는 Mixer.Info 리스트
      */
-    public static List<Mixer.Info> getMicrophones() {
-        List<Mixer.Info> microphones = new ArrayList<>();
+    public static List<Mixer.Info> getAudioInputs() {
+        List<Mixer.Info> inputs = new ArrayList<>();
         Mixer.Info[] mixers = AudioSystem.getMixerInfo();
 
         for (Mixer.Info mixerInfo : mixers) {
             try {
                 Mixer mixer = AudioSystem.getMixer(mixerInfo);
-                // TargetDataLine(마이크 입력)을 지원하는지 검사
+                // TargetDataLine(마이크 입력 등)을 지원하는지 검사
                 if (mixer.isLineSupported(new javax.sound.sampled.Line.Info(TargetDataLine.class))) {
-                    microphones.add(mixerInfo);
+                    inputs.add(mixerInfo);
                 }
             } catch (Exception e) {
                 // 특정 장치 접근 불가 시 무시하고 진행
             }
         }
-        return microphones;
+        return inputs;
     }
 }
