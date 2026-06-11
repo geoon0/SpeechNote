@@ -41,50 +41,74 @@ public class SttClient {
      */
     public SttResponse transcribe(Path audioFile, String language) {
         logger.info("[SttClient] STT 변환 작업 요청 시작함. 파일: " + audioFile.getFileName() + ", 언어: " + language);
-        try {
-            // multipart 전송용 고유 바운더리 생성
-            String boundary = "----Boundary" + System.currentTimeMillis();
+        
+        int maxRetries = 3;
+        int attempt = 0;
+        
+        while (attempt < maxRetries) {
+            attempt++;
+            try {
+                // multipart 전송용 고유 바운더리 생성
+                String boundary = "----Boundary" + System.currentTimeMillis();
 
-            // 1. multipart 본문 생성 (내부 헬퍼 메서드 호출)
-            HttpRequest.BodyPublisher bodyPublisher = ofMultipart(audioFile, language, boundary);
+                // 1. multipart 본문 생성 (내부 헬퍼 메서드 호출)
+                HttpRequest.BodyPublisher bodyPublisher = ofMultipart(audioFile, language, boundary);
 
-            // 2. HttpRequest 객체 빌드 (URL, Content-Type, timeout 5분)
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(ApiConfig.getSttUrl()))
-                    .timeout(Duration.ofMinutes(5))
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(bodyPublisher)
-                    .build();
+                // 2. HttpRequest 객체 빌드 (URL, Content-Type, timeout 5분)
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(ApiConfig.getSttUrl()))
+                        .timeout(Duration.ofMinutes(5))
+                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .POST(bodyPublisher)
+                        .build();
 
-            // 3. HTTP 동기 전송 수행
-            logger.info("[SttClient] OpenAI Whisper API 서버로 HTTP POST 요청을 전송함.");
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                // 3. HTTP 동기 전송 수행
+                logger.info("[SttClient] OpenAI Whisper API 서버로 HTTP POST 요청 전송 시도 (" + attempt + "/" + maxRetries + ")");
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
 
-            // 4. HTTP 상태 코드에 따른 예외 분기 처리
-            int status = response.statusCode();
-            logger.info("[SttClient] HTTP 응답 수신함. 상태 코드: " + status);
-            
-            if (status >= 400 && status < 500) {
-                String errMsg = "입력 오류 (" + status + "): " + response.body();
-                logger.warning("[SttClient] API 호출 오류 발생함. " + errMsg);
-                throw new ApiException(errMsg);
-            } else if (status >= 500) {
-                String errMsg = "서버 오류 (" + status + "), 잠시 후 재시도";
-                logger.warning("[SttClient] API 호출 오류 발생함. " + errMsg);
-                throw new ApiException(errMsg);
+                // 4. HTTP 상태 코드에 따른 예외 분기 처리
+                int status = response.statusCode();
+                logger.info("[SttClient] HTTP 응답 수신함. 상태 코드: " + status);
+                
+                if (status >= 400 && status < 500) {
+                    String errMsg = "입력 오류 (" + status + "): " + response.body();
+                    logger.warning("[SttClient] API 호출 오류 발생함. " + errMsg);
+                    throw new ApiException(errMsg); // 4xx는 재시도 없이 즉시 실패
+                } else if (status >= 500) {
+                    String errMsg = "서버 오류 (" + status + ")";
+                    logger.warning("[SttClient] API 서버 오류 발생함. " + errMsg);
+                    if (attempt >= maxRetries) {
+                        throw new ApiException(errMsg + " - 최대 재시도 횟수 초과");
+                    }
+                    // 재시도 대기 (1초 -> 2초)
+                    Thread.sleep(1000 * attempt);
+                    continue; // 다음 루프로 이동
+                }
+
+                // 5. JSON 파싱을 수행하여 SttResponse 객체 생성 및 반환
+                logger.info("[SttClient] STT 응답 JSON 파싱을 성공적으로 완료함.");
+                return SttResponse.fromJson(response.body());
+
+            } catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt(); // 인터럽트 상태 복구
+                    throw new ApiException("네트워크 작업이 취소되었습니다.", e);
+                }
+                
+                logger.log(Level.WARNING, "[SttClient] STT 통신 또는 파일 입출력 중 오류 발생 (" + attempt + "/" + maxRetries + ")", e);
+                if (attempt >= maxRetries) {
+                    throw new ApiException("네트워크 오류 - 최대 재시도 횟수 초과", e);
+                }
+                
+                try {
+                    Thread.sleep(1000 * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new ApiException("재시도 대기 중 취소되었습니다.", ie);
+                }
             }
-
-            // 5. JSON 파싱을 수행하여 SttResponse 객체 생성 및 반환
-            logger.info("[SttClient] STT 응답 JSON 파싱을 성공적으로 완료함.");
-            return SttResponse.fromJson(response.body());
-
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt(); // 인터럽트 상태 복구
-            }
-            logger.log(Level.SEVERE, "[SttClient] STT 통신 또는 파일 입출력 중 네트워크 오류 발생함.", e);
-            throw new ApiException("네트워크 오류", e);
         }
+        throw new ApiException("STT 변환에 실패했습니다.");
     }
 
     /**
