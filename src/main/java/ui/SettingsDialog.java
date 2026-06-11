@@ -10,6 +10,8 @@ import java.util.List;
 
 /**
  * 사용할 마이크 및 시스템 오디오 장치 선택, API 설정을 할 수 있는 설정 팝업 창임.
+  *
+ * @author 개발자
  */
 public class SettingsDialog extends JDialog {
 
