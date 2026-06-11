@@ -14,6 +14,8 @@ import java.util.concurrent.CompletableFuture;
 /**
  * 외부 모듈 연동을 위한 단일 진입점 서비스 클래스임.
  * STT 변환 처리를 통합 수행하여 결과를 반환함.
+  *
+ * @author 개발자
  */
 public class TranscriptionService {
 
@@ -32,19 +34,19 @@ public class TranscriptionService {
      * @param language 인식 대상 언어 정보 (예: "ko", "en")
      * @return 식별 고유 ID와 현재 시각, 텍스트가 바인딩된 TranscriptResult 결과 객체
      */
-    public TranscriptResult transcribeFile(Path audioFile, String language) {
+    public TranscriptResult transcribeFile(Path audioFile, String language, String userId) {
         // API 클라이언트를 호출하여 음성 변환 응답을 획득함.
         SttResponse response = sttClient.transcribe(audioFile, language);
 
         // 변환 도중 취소(인터럽트) 요청이 있었는지 확인
         if (Thread.currentThread().isInterrupted()) {
-            System.err.println("[TranscriptionService] 변환 취소됨 (인터럽트 감지)");
             throw new CancellationException("STT 변환이 취소되었습니다.");
         }
 
         // 고유 UUID 및 현재 타임스탬프를 부여하여 최종 TranscriptResult 객체를 빌드함.
         TranscriptResult result = new TranscriptResult(
                 UUID.randomUUID().toString(),
+                userId,
                 "FILE", // 추후 MIC 등 동적으로 받을 수 있게 수정 가능
                 language,
                 response.getSegments(),
@@ -52,14 +54,7 @@ public class TranscriptionService {
                 Instant.now()
         );
         
-        // 변환 성공 시 백그라운드 스레드에서 자동으로 로컬 SQLite DB에 저장함.
-        try {
-            transcriptDao.saveTranscript(result);
-            System.out.println("[TranscriptionService] DB 저장 성공: " + result.getId());
-        } catch (Exception e) {
-            System.err.println("[TranscriptionService] DB 저장 실패: " + e.getMessage());
-            e.printStackTrace();
-        }
+        // 참고: 변환 결과의 DB 저장은 userId·audioPath를 채운 뒤 MainFrame에서 일괄 수행함.
         
         return result;
     }
@@ -70,11 +65,11 @@ public class TranscriptionService {
      * @param language 인식 대상 언어 정보 (예: "ko", "en")
      * @return TranscriptResult 결과를 담은 CompletableFuture 객체
      */
-    public CompletableFuture<TranscriptResult> transcribeFileAsync(Path audioFile, String language) {
+    public CompletableFuture<TranscriptResult> transcribeFileAsync(Path audioFile, String language, String userId) {
         // 비동기 스레드 풀에서 동기 변환 작업을 실행하도록 위임함.
         // Future.cancel() 호출 시 InterruptedException이 발생할 수 있도록 스레드를 강제 인터럽트하는 것은
         // CompletableFuture 자체적으로는 지원하지 않지만 프레임워크 타임아웃과 cancel 요청에 응답할 수 있음.
-        return CompletableFuture.supplyAsync(() -> transcribeFile(audioFile, language));
+        return CompletableFuture.supplyAsync(() -> transcribeFile(audioFile, language, userId));
     }
 
     /**
@@ -93,10 +88,8 @@ public class TranscriptionService {
         
         try {
             transcriptDao.updateLlmData(result);
-            System.out.println("[TranscriptionService] LLM 결과 DB 업데이트 완료: " + result.getId());
         } catch (Exception e) {
-            System.err.println("[TranscriptionService] LLM 결과 DB 업데이트 실패: " + e.getMessage());
-            e.printStackTrace();
+            common.LoggerUtil.logError("LLM 결과 DB 업데이트 실패", e);
         }
         return result;
     }
