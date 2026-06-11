@@ -5,12 +5,18 @@ import audio.AudioRecorder;
 import common.TextSegment;
 import common.TranscriptResult;
 import db.TranscriptDao;
+import service.AuthService;
 import service.ExportService;
 import service.TranscriptionService;
 
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
 import javax.sound.sampled.Mixer;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -18,54 +24,82 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * MainFrame 클래스 - Two-Split 메모장 중심 UI 개편 적용 + F-06~F-19 통합
+ *
+ * @author 개발자
+ */
 public class MainFrame extends JFrame {
-
+    // Services
     private final TranscriptionService transcriptionService = new TranscriptionService();
     private final AudioRecorder audioRecorder = new AudioRecorder();
     private final TranscriptDao transcriptDao = new TranscriptDao();
     private final ExportService exportService = new ExportService();
+    private final AuthService authService = new AuthService();
     
+    // User Context
+    private final String userId;
+    private final String username;
+
+    // State
     private Path selectedFile = null;
     private Mixer.Info currentMicrophone = null;
     private Mixer.Info currentSystemAudio = null;
     private CompletableFuture<TranscriptResult> currentTranscribeTask = null;
-
-    private JLabel fileLabel;
-    private JButton selectFileBtn;
-    private JButton transcribeBtn;
+    private TranscriptResult currentDisplayedResult = null;
+    private List<TranscriptResult> allHistory = new ArrayList<>();
+    private Clip currentClip = null;
     
-    private JButton settingsBtn;
+    // Top Bar UI
+    private JLabel titleLabel;
+    private JButton userMenuBtn;
     private JButton startRecordBtn;
     private JButton pauseRecordBtn;
     private JButton stopRecordBtn;
     private JButton cancelBtn;
     private JLabel timerLabel;
     private JProgressBar levelMeter;
-    
+    private JButton selectFileBtn;
+    private JLabel fileLabel;
     private JComboBox<String> langComboBox;
+    private JButton transcribeBtn;
+    private JButton saveMemoBtn;
+    private JButton newMemoBtn;
+    private JProgressBar progressBar; 
     
-    private JProgressBar progressBar;
-    private JTextArea resultArea;
-    private JButton copyBtn;
-    private JButton exportTxtBtn;
-    private JButton exportSrtBtn;
-    private JButton exportDocxBtn;
-    private JButton deleteBtn;
-    private JButton summarizeBtn;
-    
+    // Left Sidebar UI
+    private JTextField searchField;
+    private JComboBox<String> sortComboBox;
     private JList<TranscriptResult> historyList;
     private DefaultListModel<TranscriptResult> historyListModel;
     
+    // Center Split UI
+    private JTextArea sttArea;
+    private JTextArea memoArea;
+    private JButton editSttBtn;
+    private JButton playAudioBtn;
+    private JButton stopAudioBtn;
+    
+    // Right Sidebar UI (AI Assistant)
+    private JTextArea summaryArea;
+    private JTextArea keywordsArea;
+    private JButton summarizeBtn;
+
     private Timer recordTimer;
     private int recordSeconds = 0;
+    private boolean isSttEditMode = false;
 
-    public MainFrame() {
-        setTitle("SpeechNote - STT 변환기");
+    public MainFrame(String userId, String username) {
+        this.userId = userId;
+        this.username = username;
+        setTitle("SpeechNote Workspace - 자바 기반 음성 인식 메모장");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1000, 600); 
+        setSize(1300, 800); 
         setLocationRelativeTo(null); 
         
         List<Mixer.Info> inputs = AudioDeviceManager.getAudioInputs();
@@ -80,114 +114,292 @@ public class MainFrame extends JFrame {
     private void initUI() {
         setLayout(new BorderLayout(10, 10));
 
-        // 1. 상단 패널 (조작 버튼들)
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // 1. 상단 패널 (Top Header)
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.setBorder(new EmptyBorder(10, 15, 10, 15));
         
-        settingsBtn = new JButton("설정 ⚙️");
+        // 상단 - 타이틀 및 저장/내보내기
+        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        titleLabel = new JLabel("📝 SpeechNote Workspace");
+        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 18));
+        titlePanel.add(titleLabel);
+        
+        JPanel rightActionsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        newMemoBtn = new JButton("➕ 새 메모");
+        newMemoBtn.setToolTipText("빈 메모를 새로 작성합니다");
+        saveMemoBtn = new JButton("💾 메모 저장");
+        saveMemoBtn.setToolTipText("현재 메모를 저장합니다");
+        userMenuBtn = new JButton("👤 " + username + " ▼");
+        userMenuBtn.setToolTipText("환경설정 · 비밀번호 변경 · 로그아웃 · 회원 탈퇴");
+        setupUserMenu();
+        rightActionsPanel.add(newMemoBtn);
+        rightActionsPanel.add(saveMemoBtn);
+        rightActionsPanel.add(Box.createHorizontalStrut(10));
+        rightActionsPanel.add(userMenuBtn);
+        
+        topPanel.add(titlePanel, BorderLayout.WEST);
+        topPanel.add(rightActionsPanel, BorderLayout.EAST);
+        
+        // 상단 - 컨트롤: 역할별 그룹(🎙 녹음 / 📁 파일 변환)으로 분리
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+
         startRecordBtn = new JButton("🔴 녹음 시작");
+        startRecordBtn.setToolTipText("마이크/시스템 오디오 녹음을 시작합니다");
         pauseRecordBtn = new JButton("⏸ 일시정지");
         pauseRecordBtn.setEnabled(false);
-        stopRecordBtn = new JButton("⬛ 녹음 중지");
+        stopRecordBtn = new JButton("⬛ 중지");
+        stopRecordBtn.setToolTipText("녹음을 끝내고 곧바로 변환합니다");
         stopRecordBtn.setEnabled(false);
         cancelBtn = new JButton("❌ 취소");
+        cancelBtn.setToolTipText("진행 중인 녹음 또는 변환을 취소합니다");
         cancelBtn.setEnabled(false);
         timerLabel = new JLabel("00:00");
         timerLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
         
         levelMeter = new JProgressBar(0, 100);
         levelMeter.setStringPainted(true);
-        levelMeter.setString("Mic Level");
-        levelMeter.setPreferredSize(new Dimension(100, 20));
+        levelMeter.setString("입력 레벨");
+        levelMeter.setPreferredSize(new Dimension(110, 22));
 
-        selectFileBtn = new JButton("음성 파일 선택");
+        selectFileBtn = new JButton("📁 오디오 업로드");
+        selectFileBtn.setToolTipText("변환할 오디오 파일을 선택합니다");
         fileLabel = new JLabel("선택된 파일 없음");
-        
         langComboBox = new JComboBox<>(new String[]{"한국어(ko)", "영어(en)", "자동(auto)"});
-        
-        transcribeBtn = new JButton("변환 시작");
+        langComboBox.setToolTipText("인식할 언어를 선택합니다");
+        transcribeBtn = new JButton("변환 시작 ▶");
+        transcribeBtn.setToolTipText("선택한 파일을 텍스트로 변환합니다");
         transcribeBtn.setEnabled(false);
+        
+        // 🎙 녹음 그룹: 녹음 제어 + 경과 시간 + 입력 레벨 미터
+        JPanel recordGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 4));
+        recordGroup.setBorder(BorderFactory.createTitledBorder("🎙 녹음"));
+        recordGroup.add(startRecordBtn);
+        recordGroup.add(pauseRecordBtn);
+        recordGroup.add(stopRecordBtn);
+        recordGroup.add(cancelBtn);
+        recordGroup.add(Box.createHorizontalStrut(8));
+        recordGroup.add(new JLabel("⏱"));
+        recordGroup.add(timerLabel);
+        recordGroup.add(levelMeter);
 
-        topPanel.add(settingsBtn);
-        topPanel.add(startRecordBtn);
-        topPanel.add(pauseRecordBtn);
-        topPanel.add(stopRecordBtn);
-        topPanel.add(cancelBtn);
-        topPanel.add(new JLabel(" [ "));
-        topPanel.add(timerLabel);
-        topPanel.add(new JLabel(" ] "));
-        topPanel.add(levelMeter);
-        topPanel.add(new JLabel(" | "));
-        topPanel.add(selectFileBtn);
-        topPanel.add(fileLabel);
-        topPanel.add(langComboBox);
-        topPanel.add(transcribeBtn);
+        // 📁 파일 변환 그룹: 파일 선택 + 언어 + 변환 실행
+        JPanel fileGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 4));
+        fileGroup.setBorder(BorderFactory.createTitledBorder("📁 파일 변환"));
+        fileGroup.add(selectFileBtn);
+        fileGroup.add(fileLabel);
+        fileGroup.add(new JLabel("  언어"));
+        fileGroup.add(langComboBox);
+        fileGroup.add(transcribeBtn);
 
-        topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
+        controlPanel.add(recordGroup);
+        controlPanel.add(fileGroup);
+        
+        topPanel.add(controlPanel, BorderLayout.SOUTH);
         add(topPanel, BorderLayout.NORTH);
 
-        // 2. 중앙 좌우 분할 패널
+        // 2. 중앙 레이아웃 (좌: 목록, 중: Split 메모장, 우: AI 패널)
+        JPanel centerWrapper = new JPanel(new BorderLayout());
+        
+        // 2-1. 좌측 사이드바 (Left Sidebar)
+        JPanel leftPanel = new JPanel(new BorderLayout(5, 5));
+        leftPanel.setPreferredSize(new Dimension(240, 0));
+        leftPanel.setBorder(new EmptyBorder(0, 10, 10, 5));
+        
+        JPanel filterPanel = new JPanel(new BorderLayout(5, 5));
+        searchField = new JTextField("🔍 검색어 입력...");
+        searchField.setForeground(Color.GRAY);
+        addContextMenu(searchField);
+        
+        sortComboBox = new JComboBox<>(new String[]{"최신순", "제목(메모)순"});
+        
+        filterPanel.add(searchField, BorderLayout.NORTH);
+        filterPanel.add(sortComboBox, BorderLayout.SOUTH);
+        leftPanel.add(filterPanel, BorderLayout.NORTH);
+        
         historyListModel = new DefaultListModel<>();
         historyList = new JList<>(historyListModel);
         historyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         historyList.setCellRenderer(new HistoryCellRenderer());
         
         JScrollPane leftScrollPane = new JScrollPane(historyList);
-        leftScrollPane.setPreferredSize(new Dimension(280, 0));
-        leftScrollPane.setBorder(BorderFactory.createTitledBorder("과거 기록 목록"));
-
-        JPanel rightPanel = new JPanel(new BorderLayout(5, 5));
-        rightPanel.setBorder(BorderFactory.createTitledBorder("상세 내용"));
+        leftScrollPane.setBorder(BorderFactory.createTitledBorder("RECENT (최근 항목)"));
+        leftPanel.add(leftScrollPane, BorderLayout.CENTER);
         
+        // 2-2. 중앙 패널 (Two-Split)
+        sttArea = new JTextArea();
+        sttArea.setEditable(false);
+        sttArea.setLineWrap(true);
+        sttArea.setWrapStyleWord(true);
+        sttArea.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        sttArea.setMargin(new Insets(10, 10, 10, 10));
+        addContextMenu(sttArea);
+        JScrollPane sttScroll = new JScrollPane(sttArea);
+        
+        // STT Header with Edit and Play controls
+        JPanel sttHeaderPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
+        playAudioBtn = new JButton("▶ 재생");
+        stopAudioBtn = new JButton("⏹ 정지");
+        editSttBtn = new JButton("✏️ 텍스트 편집");
+        playAudioBtn.setEnabled(false);
+        stopAudioBtn.setEnabled(false);
+        editSttBtn.setEnabled(false);
+        
+        sttHeaderPanel.add(playAudioBtn);
+        sttHeaderPanel.add(stopAudioBtn);
+        sttHeaderPanel.add(editSttBtn);
+        
+        JPanel sttContainer = new JPanel(new BorderLayout());
+        sttContainer.setBorder(BorderFactory.createTitledBorder("🗣️ 실시간 음성 기록"));
+        sttContainer.add(sttHeaderPanel, BorderLayout.NORTH);
+        sttContainer.add(sttScroll, BorderLayout.CENTER);
+        
+        memoArea = new JTextArea();
+        memoArea.setLineWrap(true);
+        memoArea.setWrapStyleWord(true);
+        memoArea.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        memoArea.setMargin(new Insets(10, 10, 10, 10));
+        addContextMenu(memoArea);
+        JScrollPane memoScroll = new JScrollPane(memoArea);
+        memoScroll.setBorder(BorderFactory.createTitledBorder("📝 내 개인 메모"));
+        
+        JSplitPane twoSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sttContainer, memoScroll);
+        twoSplitPane.setDividerLocation(400);
+        twoSplitPane.setResizeWeight(0.5);
+        
+        JPanel centerContentPanel = new JPanel(new BorderLayout());
         progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
         progressBar.setVisible(false);
         progressBar.setStringPainted(true);
-
-        resultArea = new JTextArea();
-        resultArea.setEditable(false);
-        resultArea.setLineWrap(true);
-        resultArea.setWrapStyleWord(true);
-        resultArea.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        JScrollPane rightScrollPane = new JScrollPane(resultArea);
-
-        rightPanel.add(progressBar, BorderLayout.NORTH);
-        rightPanel.add(rightScrollPane, BorderLayout.CENTER);
-
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScrollPane, rightPanel);
-        splitPane.setDividerLocation(280); 
-        splitPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(splitPane, BorderLayout.CENTER);
-
-        // 3. 하단 패널 (기타 액션)
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+        centerContentPanel.add(progressBar, BorderLayout.NORTH);
+        centerContentPanel.add(twoSplitPane, BorderLayout.CENTER);
         
-        deleteBtn = new JButton("🗑️ 삭제");
-        deleteBtn.setEnabled(false);
-        bottomPanel.add(deleteBtn);
+        // 2-3. 우측 사이드바 (AI Assistant)
+        JPanel rightPanel = new JPanel(new BorderLayout(5, 5));
+        rightPanel.setPreferredSize(new Dimension(280, 0));
+        rightPanel.setBorder(new EmptyBorder(0, 5, 10, 10));
         
-        summarizeBtn = new JButton("✨ 요약/키워드 추출");
+        JPanel aiHeader = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        JLabel aiLabel = new JLabel("✨ AI 어시스턴트");
+        aiLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
+        aiHeader.add(aiLabel);
+        
+        JPanel aiContent = new JPanel();
+        aiContent.setLayout(new BoxLayout(aiContent, BoxLayout.Y_AXIS));
+        
+        summaryArea = new JTextArea(6, 20);
+        summaryArea.setEditable(false);
+        summaryArea.setLineWrap(true);
+        summaryArea.setWrapStyleWord(true);
+        addContextMenu(summaryArea);
+        JScrollPane sumScroll = new JScrollPane(summaryArea);
+        sumScroll.setBorder(BorderFactory.createTitledBorder("실시간 요약"));
+        
+        keywordsArea = new JTextArea(4, 20);
+        keywordsArea.setEditable(false);
+        keywordsArea.setLineWrap(true);
+        keywordsArea.setWrapStyleWord(true);
+        addContextMenu(keywordsArea);
+        JScrollPane keyScroll = new JScrollPane(keywordsArea);
+        keyScroll.setBorder(BorderFactory.createTitledBorder("핵심 키워드"));
+        
+        aiContent.add(sumScroll);
+        aiContent.add(Box.createVerticalStrut(10));
+        aiContent.add(keyScroll);
+        
+        JPanel aiActions = new JPanel(new GridLayout(0, 1, 5, 5));
+        summarizeBtn = new JButton("✨ 새로고침 (요약/키워드 생성)");
         summarizeBtn.setEnabled(false);
-        bottomPanel.add(summarizeBtn);
+        aiActions.add(summarizeBtn);
         
-        exportTxtBtn = new JButton("📄 TXT");
-        exportTxtBtn.setEnabled(false);
-        bottomPanel.add(exportTxtBtn);
+        aiContent.add(Box.createVerticalStrut(10));
+        aiContent.add(aiActions);
         
-        exportSrtBtn = new JButton("🎬 SRT");
-        exportSrtBtn.setEnabled(false);
-        bottomPanel.add(exportSrtBtn);
+        rightPanel.add(aiHeader, BorderLayout.NORTH);
+        rightPanel.add(aiContent, BorderLayout.CENTER);
         
-        exportDocxBtn = new JButton("📝 DOCX");
-        exportDocxBtn.setEnabled(false);
-        bottomPanel.add(exportDocxBtn);
+        // 조합
+        centerWrapper.add(leftPanel, BorderLayout.WEST);
+        centerWrapper.add(centerContentPanel, BorderLayout.CENTER);
+        centerWrapper.add(rightPanel, BorderLayout.EAST);
         
-        copyBtn = new JButton("복사");
-        copyBtn.setEnabled(false);
-        bottomPanel.add(copyBtn);
-        add(bottomPanel, BorderLayout.SOUTH);
+        add(centerWrapper, BorderLayout.CENTER);
 
         setupListeners();
+    }
+
+    private void setupUserMenu() {
+        JPopupMenu userMenu = new JPopupMenu();
+        JMenuItem settingsItem = new JMenuItem("⚙️ 환경 설정");
+        JMenuItem pwdItem = new JMenuItem("🔒 비밀번호 변경");
+        JMenuItem logoutItem = new JMenuItem("🚪 로그아웃");
+        JMenuItem deleteItem = new JMenuItem("🗑️ 회원 탈퇴");
+
+        settingsItem.addActionListener(e -> {
+            SettingsDialog dialog = new SettingsDialog(this, currentMicrophone, currentSystemAudio);
+            dialog.setVisible(true);
+            currentMicrophone = dialog.getSelectedMicrophone();
+            currentSystemAudio = dialog.getSelectedSystemAudio();
+        });
+
+        pwdItem.addActionListener(e -> changePassword());
+        logoutItem.addActionListener(e -> logout());
+        deleteItem.addActionListener(e -> deleteAccount());
+
+        userMenu.add(settingsItem);
+        userMenu.addSeparator();
+        userMenu.add(pwdItem);
+        userMenu.add(logoutItem);
+        userMenu.addSeparator();
+        userMenu.add(deleteItem);
+
+        userMenuBtn.addActionListener(e -> userMenu.show(userMenuBtn, 0, userMenuBtn.getHeight()));
+    }
+
+    private void changePassword() {
+        JPasswordField oldPwdField = new JPasswordField(10);
+        JPasswordField newPwdField = new JPasswordField(10);
+        JPanel panel = new JPanel(new GridLayout(2, 2, 5, 5));
+        panel.add(new JLabel("현재 비밀번호:"));
+        panel.add(oldPwdField);
+        panel.add(new JLabel("새 비밀번호:"));
+        panel.add(newPwdField);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, "비밀번호 변경", JOptionPane.OK_CANCEL_OPTION);
+        if (result == JOptionPane.OK_OPTION) {
+            try {
+                boolean success = authService.changePassword(userId, new String(oldPwdField.getPassword()), new String(newPwdField.getPassword()));
+                if (success) {
+                    JOptionPane.showMessageDialog(this, "비밀번호가 성공적으로 변경되었습니다.", "성공", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(this, "현재 비밀번호가 일치하지 않습니다.", "오류", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (Exception ex) {
+                common.LoggerUtil.logError("비밀번호 변경 오류", ex);
+                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void deleteAccount() {
+        int confirm = JOptionPane.showConfirmDialog(this, "정말 회원 탈퇴를 진행하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.", "회원 탈퇴", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirm == JOptionPane.YES_OPTION) {
+            try {
+                authService.deleteAccount(userId);
+                JOptionPane.showMessageDialog(this, "탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.", "탈퇴 완료", JOptionPane.INFORMATION_MESSAGE);
+                logout();
+            } catch (Exception ex) {
+                common.LoggerUtil.logError("회원 탈퇴 오류", ex);
+                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void logout() {
+        if (currentClip != null) currentClip.close();
+        LoginFrame loginFrame = new LoginFrame();
+        loginFrame.setVisible(true);
+        this.dispose();
     }
 
     private static class HistoryCellRenderer extends DefaultListCellRenderer {
@@ -198,8 +410,9 @@ public class MainFrame extends JFrame {
             if (value instanceof TranscriptResult) {
                 TranscriptResult tr = (TranscriptResult) value;
                 String timeStr = formatter.format(tr.getCreatedAt());
-                String preview = tr.getRawText().replace("\n", " ");
-                if (preview.length() > 18) preview = preview.substring(0, 18) + "...";
+                String preview = tr.getMemo() != null && !tr.getMemo().isEmpty() ? tr.getMemo().replace("\n", " ") : 
+                                (tr.getRawText() != null ? tr.getRawText().replace("\n", " ") : "내용 없음");
+                if (preview.length() > 14) preview = preview.substring(0, 14) + "...";
                 String icon = "FILE".equals(tr.getSource()) ? "📁 " : "🎤 ";
                 setText("<html><b style='font-size:11px'>" + icon + timeStr + "</b><br><span style='color:gray; font-size:10px'>" + preview + "</span></html>");
                 setBorder(new EmptyBorder(8, 8, 8, 8));
@@ -215,31 +428,171 @@ public class MainFrame extends JFrame {
     }
 
     private void setupListeners() {
-        historyList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                TranscriptResult selected = historyList.getSelectedValue();
-                if (selected != null) {
-                    renderResultToTextArea(selected);
-                    deleteBtn.setEnabled(true);
-                    exportTxtBtn.setEnabled(true);
-                    exportSrtBtn.setEnabled(true);
-                    exportDocxBtn.setEnabled(true);
-                    summarizeBtn.setEnabled(true);
-                } else {
-                    deleteBtn.setEnabled(false);
-                    exportTxtBtn.setEnabled(false);
-                    exportSrtBtn.setEnabled(false);
-                    exportDocxBtn.setEnabled(false);
-                    summarizeBtn.setEnabled(false);
+        // Search & Filter Listeners (F-15, F-16)
+        searchField.addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusGained(java.awt.event.FocusEvent evt) {
+                if (searchField.getText().equals("🔍 검색어 입력...")) {
+                    searchField.setText("");
+                    searchField.setForeground(Color.BLACK);
+                }
+            }
+            public void focusLost(java.awt.event.FocusEvent evt) {
+                if (searchField.getText().isEmpty()) {
+                    searchField.setForeground(Color.GRAY);
+                    searchField.setText("🔍 검색어 입력...");
                 }
             }
         });
 
-        settingsBtn.addActionListener(e -> {
-            SettingsDialog dialog = new SettingsDialog(this, currentMicrophone, currentSystemAudio);
-            dialog.setVisible(true);
-            currentMicrophone = dialog.getSelectedMicrophone();
-            currentSystemAudio = dialog.getSelectedSystemAudio();
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { updateHistoryList(); }
+            public void removeUpdate(DocumentEvent e) { updateHistoryList(); }
+            public void changedUpdate(DocumentEvent e) { updateHistoryList(); }
+        });
+
+        sortComboBox.addActionListener(e -> updateHistoryList());
+
+        historyList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                TranscriptResult selected = historyList.getSelectedValue();
+                currentDisplayedResult = selected;
+                if (selected != null) {
+                    renderResultToUI(selected);
+                    enableActions(true);
+                } else {
+                    enableActions(false);
+                }
+            }
+        });
+        
+        // F-12: Edit STT Text
+        editSttBtn.addActionListener(e -> {
+            if (currentDisplayedResult == null) return;
+            if (!isSttEditMode) {
+                isSttEditMode = true;
+                sttArea.setEditable(true);
+                sttArea.setBackground(new Color(255, 255, 220));
+                editSttBtn.setText("💾 수정 완료");
+                JOptionPane.showMessageDialog(this, "STT 원문 편집 모드로 전환되었습니다.", "편집 모드", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                isSttEditMode = false;
+                sttArea.setEditable(false);
+                sttArea.setBackground(UIManager.getColor("TextArea.background"));
+                editSttBtn.setText("✏️ 텍스트 편집");
+                try {
+                    String newText = sttArea.getText();
+                    transcriptDao.updateRawText(currentDisplayedResult.getId(), newText);
+                    // Update current list model item to reflect changes
+                    int idx = historyList.getSelectedIndex();
+                    TranscriptResult tr = new TranscriptResult(
+                            currentDisplayedResult.getId(), currentDisplayedResult.getUserId(),
+                            currentDisplayedResult.getSource(), currentDisplayedResult.getLanguage(),
+                            currentDisplayedResult.getSegments(), newText, currentDisplayedResult.getCreatedAt()
+                    );
+                    tr.setMemo(currentDisplayedResult.getMemo());
+                    tr.setSummary(currentDisplayedResult.getSummary());
+                    tr.setKeywords(currentDisplayedResult.getKeywords());
+                    tr.setAudioPath(currentDisplayedResult.getAudioPath());
+                    
+                    if (idx != -1) {
+                        historyListModel.set(idx, tr);
+                    }
+                    // Update allHistory list
+                    for (int i=0; i<allHistory.size(); i++) {
+                        if (allHistory.get(i).getId().equals(tr.getId())) {
+                            allHistory.set(i, tr);
+                            break;
+                        }
+                    }
+                    currentDisplayedResult = tr;
+                    JOptionPane.showMessageDialog(this, "수정된 원문이 성공적으로 저장되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    common.LoggerUtil.logError("원문 저장 오류", ex);
+                    JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        // F-18: Play Audio
+        playAudioBtn.addActionListener(e -> {
+            if (currentDisplayedResult != null && currentDisplayedResult.getAudioPath() != null) {
+                File audioFile = new File(currentDisplayedResult.getAudioPath());
+                if (audioFile.exists()) {
+                    try {
+                        if (currentClip != null && currentClip.isRunning()) {
+                            currentClip.stop();
+                        }
+                        AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(audioFile);
+                        currentClip = AudioSystem.getClip();
+                        currentClip.open(audioInputStream);
+                        currentClip.start();
+                        playAudioBtn.setEnabled(false);
+                        stopAudioBtn.setEnabled(true);
+
+                        currentClip.addLineListener(event -> {
+                            if (event.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
+                                SwingUtilities.invokeLater(() -> {
+                                    playAudioBtn.setEnabled(true);
+                                    stopAudioBtn.setEnabled(false);
+                                });
+                            }
+                        });
+                    } catch (Exception ex) {
+                        common.LoggerUtil.logError("오디오 재생 오류", ex);
+                        JOptionPane.showMessageDialog(this, "오디오 재생 중 오류: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(this, "오디오 파일을 찾을 수 없습니다: " + audioFile.getAbsolutePath(), "알림", JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        });
+
+        stopAudioBtn.addActionListener(e -> {
+            if (currentClip != null && currentClip.isRunning()) {
+                currentClip.stop();
+                playAudioBtn.setEnabled(true);
+                stopAudioBtn.setEnabled(false);
+            }
+        });
+
+        newMemoBtn.addActionListener(e -> {
+            historyList.clearSelection();
+            sttArea.setText("");
+            memoArea.setText("");
+            summaryArea.setText("");
+            keywordsArea.setText("");
+            memoArea.requestFocusInWindow();
+            enableActions(false);
+        });
+
+        saveMemoBtn.addActionListener(e -> {
+            String text = memoArea.getText();
+            if (text.trim().isEmpty() && currentDisplayedResult == null) {
+                JOptionPane.showMessageDialog(this, "저장할 내용이 없습니다.", "알림", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            try {
+                if (currentDisplayedResult != null) {
+                    currentDisplayedResult.setMemo(text);
+                    transcriptDao.updateLlmData(currentDisplayedResult); 
+                    JOptionPane.showMessageDialog(this, "메모가 성공적으로 업데이트되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
+                    historyList.repaint(); // To update the memo preview in list
+                } else {
+                    TranscriptResult newMemo = new TranscriptResult(
+                            java.util.UUID.randomUUID().toString(), userId,
+                            "MEMO", "ko", new java.util.ArrayList<>(), "", java.time.Instant.now()
+                    );
+                    newMemo.setMemo(text);
+                    transcriptDao.saveTranscript(newMemo);
+                    allHistory.add(0, newMemo);
+                    updateHistoryList();
+                    historyList.setSelectedIndex(0);
+                    JOptionPane.showMessageDialog(this, "새 메모가 성공적으로 저장되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "메모 저장 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+            }
         });
 
         startRecordBtn.addActionListener(e -> {
@@ -257,23 +610,20 @@ public class MainFrame extends JFrame {
                 cancelBtn.setEnabled(true);
                 selectFileBtn.setEnabled(false);
                 transcribeBtn.setEnabled(false);
-                settingsBtn.setEnabled(false);
-                copyBtn.setEnabled(false);
-                deleteBtn.setEnabled(false);
-                exportTxtBtn.setEnabled(false);
-                exportSrtBtn.setEnabled(false);
-                exportDocxBtn.setEnabled(false);
-                summarizeBtn.setEnabled(false);
+                userMenuBtn.setEnabled(false);
+                enableActions(false);
                 
                 historyList.clearSelection();
-                resultArea.setText("");
+                sttArea.setText("");
+                memoArea.setText("");
+                summaryArea.setText("");
+                keywordsArea.setText("");
                 progressBar.setString("🔴 마이크 녹음 중입니다...");
                 progressBar.setVisible(true);
                 
                 recordSeconds = 0;
                 updateTimerLabel();
                 if (recordTimer != null) recordTimer.stop();
-                // 초시계는 1초마다, 미터기는 100ms마다 갱신하기 위해 tick 카운터 사용
                 int[] tick = {0};
                 recordTimer = new Timer(100, evt -> {
                     if (audioRecorder.getState() == AudioRecorder.State.RECORDING) {
@@ -322,11 +672,11 @@ public class MainFrame extends JFrame {
                 selectedFile = recordedFile;
                 fileLabel.setText(recordedFile.getFileName().toString());
                 transcribeBtn.setEnabled(true);
-                transcribeBtn.doClick(); // 알아서 변환 버튼을 눌러줌
+                transcribeBtn.doClick(); // 자동 변환
             } else {
                 progressBar.setVisible(false);
                 selectFileBtn.setEnabled(true);
-                settingsBtn.setEnabled(true);
+                userMenuBtn.setEnabled(true);
             }
         });
 
@@ -339,7 +689,6 @@ public class MainFrame extends JFrame {
                 resetUI();
                 progressBar.setVisible(true);
                 progressBar.setString("❌ 녹음이 취소되었습니다.");
-                // 2초 뒤 알림 숨김
                 Timer hideTimer = new Timer(2000, evt -> progressBar.setVisible(false));
                 hideTimer.setRepeats(false);
                 hideTimer.start();
@@ -369,52 +718,63 @@ public class MainFrame extends JFrame {
             transcribeBtn.setEnabled(false);
             selectFileBtn.setEnabled(false);
             startRecordBtn.setEnabled(false);
-            settingsBtn.setEnabled(false);
-            copyBtn.setEnabled(false);
-            deleteBtn.setEnabled(false);
-            exportTxtBtn.setEnabled(false);
-            exportSrtBtn.setEnabled(false);
-            exportDocxBtn.setEnabled(false);
-            summarizeBtn.setEnabled(false);
+            userMenuBtn.setEnabled(false);
+            enableActions(false);
             cancelBtn.setEnabled(true);
             historyList.clearSelection(); 
             
             progressBar.setString("서버에서 변환 중입니다. 잠시만 기다려주세요...");
             progressBar.setVisible(true);
-            resultArea.setText("");
+            sttArea.setText("");
+            memoArea.setText("");
+            summaryArea.setText("");
+            keywordsArea.setText("");
 
             String selectedLang = (String) langComboBox.getSelectedItem();
             String langCode = "ko";
             if (selectedLang.contains("en")) langCode = "en";
             else if (selectedLang.contains("auto")) langCode = "";
 
-            currentTranscribeTask = transcriptionService.transcribeFileAsync(selectedFile, langCode);
-            currentTranscribeTask.thenAccept(result -> SwingUtilities.invokeLater(() -> handleSuccess(result)))
+            currentTranscribeTask = transcriptionService.transcribeFileAsync(selectedFile, langCode, userId);
+            currentTranscribeTask.thenAccept(result -> SwingUtilities.invokeLater(() -> handleSuccess(result, selectedFile)))
                 .exceptionally(ex -> {
                     SwingUtilities.invokeLater(() -> handleError(ex));
                     return null;
                 });
         });
 
-        copyBtn.addActionListener(e -> {
-            String text = resultArea.getText();
-            if (!text.isEmpty()) {
-                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
-                        .setContents(new java.awt.datatransfer.StringSelection(text), null);
-                JOptionPane.showMessageDialog(this, "복사 완료!", "알림", JOptionPane.INFORMATION_MESSAGE);
+        historyList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    int row = historyList.locationToIndex(e.getPoint());
+                    if (row != -1) {
+                        historyList.setSelectedIndex(row);
+                        JPopupMenu popup = new JPopupMenu();
+                        
+                        JMenuItem copyMenu = new JMenuItem("📋 텍스트 복사");
+                        JMenuItem txtMenu = new JMenuItem("💾 TXT 저장 (메모 포함)");
+                        JMenuItem srtMenu = new JMenuItem("📁 SRT 자막 추출");
+                        JMenuItem docxMenu = new JMenuItem("📄 DOCX 문서 추출");
+                        JMenuItem deleteMenu = new JMenuItem("🗑️ 기록 삭제");
+                        
+                        copyMenu.addActionListener(evt -> copyRecord());
+                        txtMenu.addActionListener(evt -> exportFile("txt"));
+                        srtMenu.addActionListener(evt -> exportFile("srt"));
+                        docxMenu.addActionListener(evt -> exportFile("docx"));
+                        deleteMenu.addActionListener(evt -> deleteRecord());
+                        
+                        popup.add(copyMenu);
+                        popup.add(txtMenu);
+                        popup.add(srtMenu);
+                        popup.add(docxMenu);
+                        popup.addSeparator();
+                        popup.add(deleteMenu);
+                        
+                        popup.show(historyList, e.getX(), e.getY());
+                    }
+                }
             }
-        });
-        
-        exportTxtBtn.addActionListener(e -> {
-            exportFile("txt");
-        });
-        
-        exportSrtBtn.addActionListener(e -> {
-            exportFile("srt");
-        });
-        
-        exportDocxBtn.addActionListener(e -> {
-            exportFile("docx");
         });
 
         summarizeBtn.addActionListener(e -> {
@@ -429,8 +789,8 @@ public class MainFrame extends JFrame {
             future.thenAccept(result -> SwingUtilities.invokeLater(() -> {
                 progressBar.setVisible(false);
                 summarizeBtn.setEnabled(true);
-                renderResultToTextArea(result);
-                historyList.repaint(); // 업데이트된 모델 렌더링
+                renderResultToUI(result);
+                historyList.repaint();
                 JOptionPane.showMessageDialog(this, "요약 및 키워드 추출이 완료되었습니다.", "완료", JOptionPane.INFORMATION_MESSAGE);
             })).exceptionally(ex -> {
                 SwingUtilities.invokeLater(() -> {
@@ -441,28 +801,56 @@ public class MainFrame extends JFrame {
                 return null;
             });
         });
+    }
 
-        deleteBtn.addActionListener(e -> {
-            TranscriptResult selected = historyList.getSelectedValue();
-            if (selected == null) return;
-            
-            int confirm = JOptionPane.showConfirmDialog(this, "선택한 변환 기록을 영구적으로 삭제하시겠습니까?", "삭제 확인", JOptionPane.YES_NO_OPTION);
-            if (confirm == JOptionPane.YES_OPTION) {
-                try {
-                    transcriptDao.deleteTranscript(selected.getId());
-                    historyListModel.removeElement(selected);
-                    resultArea.setText("");
-                    copyBtn.setEnabled(false);
-                    deleteBtn.setEnabled(false);
-                    exportTxtBtn.setEnabled(false);
-                    exportSrtBtn.setEnabled(false);
-                    exportDocxBtn.setEnabled(false);
-                    summarizeBtn.setEnabled(false);
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(this, "삭제 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
-                }
+    private void updateHistoryList() {
+        String filter = searchField.getText();
+        if (filter.equals("🔍 검색어 입력...")) filter = "";
+        filter = filter.toLowerCase();
+
+        boolean isSortByTitle = sortComboBox.getSelectedIndex() == 1;
+
+        List<TranscriptResult> filtered = new ArrayList<>();
+        for (TranscriptResult tr : allHistory) {
+            boolean match = false;
+            if (filter.isEmpty()) {
+                match = true;
+            } else {
+                if (tr.getMemo() != null && tr.getMemo().toLowerCase().contains(filter)) match = true;
+                if (tr.getRawText() != null && tr.getRawText().toLowerCase().contains(filter)) match = true;
+                if (tr.getSummary() != null && tr.getSummary().toLowerCase().contains(filter)) match = true;
+                if (tr.getKeywords() != null && tr.getKeywords().toLowerCase().contains(filter)) match = true;
             }
-        });
+            if (match) filtered.add(tr);
+        }
+
+        if (isSortByTitle) {
+            filtered.sort((o1, o2) -> {
+                String t1 = o1.getMemo() != null ? o1.getMemo() : "";
+                String t2 = o2.getMemo() != null ? o2.getMemo() : "";
+                return t1.compareTo(t2);
+            });
+        } else {
+            // Latest first
+            filtered.sort((o1, o2) -> o2.getCreatedAt().compareTo(o1.getCreatedAt()));
+        }
+
+        historyListModel.clear();
+        for (TranscriptResult tr : filtered) {
+            historyListModel.addElement(tr);
+        }
+    }
+
+    private void enableActions(boolean enable) {
+        summarizeBtn.setEnabled(enable);
+        editSttBtn.setEnabled(enable && currentDisplayedResult != null && !currentDisplayedResult.getSource().equals("MEMO"));
+        
+        if (enable && currentDisplayedResult != null && currentDisplayedResult.getAudioPath() != null) {
+            playAudioBtn.setEnabled(true);
+        } else {
+            playAudioBtn.setEnabled(false);
+            stopAudioBtn.setEnabled(false);
+        }
     }
 
     private void resetUI() {
@@ -472,98 +860,190 @@ public class MainFrame extends JFrame {
         cancelBtn.setEnabled(false);
         selectFileBtn.setEnabled(true);
         if (selectedFile != null) transcribeBtn.setEnabled(true);
-        settingsBtn.setEnabled(true);
+        userMenuBtn.setEnabled(true);
     }
 
     private void loadHistoryFromDB() {
         SwingWorker<List<TranscriptResult>, Void> worker = new SwingWorker<>() {
             @Override
             protected List<TranscriptResult> doInBackground() throws Exception {
-                return transcriptDao.getAllTranscripts();
+                return transcriptDao.getAllTranscripts(userId);
             }
             @Override
             protected void done() {
                 try {
-                    List<TranscriptResult> results = get();
-                    historyListModel.clear();
-                    for (TranscriptResult tr : results) {
-                        historyListModel.addElement(tr);
-                    }
+                    allHistory = get();
+                    updateHistoryList();
                 } catch (Exception e) {
-                    System.err.println("DB 로드 실패: " + e.getMessage());
+                    common.LoggerUtil.logError("기록 DB 로드 실패", e);
                 }
             }
         };
         worker.execute();
     }
 
-    private void handleSuccess(TranscriptResult result) {
-        historyListModel.add(0, result);
-        historyList.setSelectedIndex(0);
+    private void handleSuccess(TranscriptResult result, Path audioFile) {
+        // Need to create a new TranscriptResult that includes userId and audioPath
+        TranscriptResult finalResult = new TranscriptResult(
+                result.getId(), userId, result.getSource(), result.getLanguage(),
+                result.getSegments(), result.getRawText(), result.getCreatedAt()
+        );
+        finalResult.setAudioPath(audioFile.toAbsolutePath().toString());
         
-        progressBar.setVisible(false);
-        cancelBtn.setEnabled(false);
-        resetUI();
+        try {
+            transcriptDao.saveTranscript(finalResult);
+            allHistory.add(0, finalResult);
+            updateHistoryList();
+            historyList.setSelectedIndex(0);
+            
+            progressBar.setVisible(false);
+            resetUI();
+            
+            int confirm = JOptionPane.showConfirmDialog(this, 
+                "변환이 완료되었습니다. 지금 바로 AI 요약 및 키워드를 생성하시겠습니까?", 
+                "AI 요약 실행", JOptionPane.YES_NO_OPTION);
+                
+            if (confirm == JOptionPane.YES_OPTION) {
+                summarizeBtn.doClick();
+            }
+        } catch (Exception ex) {
+            common.LoggerUtil.logError("변환 결과 DB 저장 오류", ex);
+            handleError(ex);
+        }
     }
-    
-    private void renderResultToTextArea(TranscriptResult result) {
+
+    private void renderResultToUI(TranscriptResult result) {
+        if (currentClip != null && currentClip.isRunning()) {
+            currentClip.stop();
+            playAudioBtn.setEnabled(true);
+            stopAudioBtn.setEnabled(false);
+        }
+
+        currentDisplayedResult = result;
+        
+        // 좌측: 음성 기록 세그먼트 파싱
         StringBuilder sb = new StringBuilder();
-        
-        if (result.getSummary() != null && !result.getSummary().isEmpty()) {
-            sb.append("▶ 요약 (Summary):\n").append(result.getSummary()).append("\n\n");
-        }
-        if (result.getKeywords() != null && !result.getKeywords().isEmpty()) {
-            sb.append("▶ 키워드:\n").append(result.getKeywords()).append("\n\n");
-        }
-        
-        sb.append("▶ 전체 텍스트:\n").append(result.getRawText()).append("\n\n");
-        sb.append("▶ 시간대별 상세:\n");
         for (TextSegment seg : result.getSegments()) {
-            String speakerStr = seg.getSpeaker() != null ? " (화자 " + seg.getSpeaker() + ")" : "";
-            sb.append(String.format("[%.1fs ~ %.1fs]%s %s\n", seg.getStartSec(), seg.getEndSec(), speakerStr, seg.getText()));
+            String speakerStr = seg.getSpeaker() != null ? " [화자 " + seg.getSpeaker() + "]" : "";
+            sb.append(String.format("%s %.1fs ~ %.1fs\n%s\n\n", speakerStr, seg.getStartSec(), seg.getEndSec(), seg.getText()));
+        }
+        if (sb.length() == 0 && result.getRawText() != null) {
+             sb.append(result.getRawText()); // 세그먼트가 없으면 전체 원문 출력
         }
         
-        resultArea.setText(sb.toString());
-        resultArea.setCaretPosition(0);
-        copyBtn.setEnabled(true);
+        isSttEditMode = false;
+        sttArea.setEditable(false);
+        sttArea.setBackground(UIManager.getColor("TextArea.background"));
+        editSttBtn.setText("✏️ 텍스트 편집");
+        
+        sttArea.setText(sb.toString().trim());
+        sttArea.setCaretPosition(0);
+        
+        // 중앙 우측: 내 개인 메모
+        memoArea.setText(result.getMemo() != null ? result.getMemo() : "");
+        memoArea.setCaretPosition(0);
+        
+        // 우측 AI 사이드바: 요약 및 키워드
+        summaryArea.setText(result.getSummary() != null ? result.getSummary() : "아직 요약이 없습니다. 새로고침을 눌러주세요.");
+        summaryArea.setCaretPosition(0);
+        
+        keywordsArea.setText(result.getKeywords() != null ? result.getKeywords() : "아직 키워드가 없습니다.");
+        keywordsArea.setCaretPosition(0);
     }
     
     private void exportFile(String ext) {
-        TranscriptResult selected = historyList.getSelectedValue();
-        if (selected == null) return;
-        
-        JFileChooser fileChooser = new JFileChooser();
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm").withZone(ZoneId.systemDefault());
-        String defaultFileName = dtf.format(selected.getCreatedAt()) + "_" + selected.getId().substring(0, 8) + "." + ext;
-        fileChooser.setSelectedFile(new File(defaultFileName));
-        
-        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            try {
+        try {
+            TranscriptResult selected = historyList.getSelectedValue();
+            if (selected == null) return;
+            
+            JFileChooser fileChooser = new JFileChooser();
+            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm").withZone(ZoneId.systemDefault());
+            String defaultFileName = dtf.format(selected.getCreatedAt()) + "_" + selected.getId().substring(0, 8) + "." + ext;
+            fileChooser.setSelectedFile(new File(defaultFileName));
+            
+            if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
                 if ("txt".equals(ext)) {
-                    Files.writeString(file.toPath(), selected.getRawText(), StandardCharsets.UTF_8);
+                    // txt 내보내기 시 메모도 포함
+                    String exportContent = "▶ STT 음성 기록\n" + selected.getRawText() + "\n\n" +
+                                           "▶ 내 개인 메모\n" + (selected.getMemo() != null ? selected.getMemo() : "") + "\n\n" +
+                                           "▶ AI 요약\n" + (selected.getSummary() != null ? selected.getSummary() : "");
+                    Files.writeString(file.toPath(), exportContent, StandardCharsets.UTF_8);
                 } else if ("srt".equals(ext)) {
                     exportService.exportToSrt(selected, file.toPath());
                 } else if ("docx".equals(ext)) {
                     exportService.exportToDocx(selected, file.toPath());
                 }
                 JOptionPane.showMessageDialog(this, "파일이 정상적으로 저장되었습니다.", "저장 성공", JOptionPane.INFORMATION_MESSAGE);
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "저장 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
             }
+        } catch (Exception ex) {
+            common.LoggerUtil.logError("파일 저장 중 오류 발생", ex);
+            JOptionPane.showMessageDialog(this, "저장 중 오류가 발생했습니다:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void handleError(Throwable ex) {
         if (ex.getCause() instanceof java.util.concurrent.CancellationException) {
-            // 취소된 경우는 이미 cancelBtn.addActionListener에서 처리됨
             return;
         }
+        common.LoggerUtil.logError("처리 중 오류 발생", ex);
         progressBar.setVisible(false);
         cancelBtn.setEnabled(false);
         resetUI();
         
         String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
         JOptionPane.showMessageDialog(this, "오류:\n" + errorMsg, "에러", JOptionPane.ERROR_MESSAGE);
+    }
+    
+    private void addContextMenu(javax.swing.text.JTextComponent component) {
+        JPopupMenu popup = new JPopupMenu();
+        JMenuItem copyItem = new JMenuItem("복사(Copy)");
+        JMenuItem cutItem = new JMenuItem("잘라내기(Cut)");
+        JMenuItem pasteItem = new JMenuItem("붙여넣기(Paste)");
+        JMenuItem selectAllItem = new JMenuItem("전체 선택(Select All)");
+        
+        copyItem.addActionListener(e -> component.copy());
+        cutItem.addActionListener(e -> component.cut());
+        pasteItem.addActionListener(e -> component.paste());
+        selectAllItem.addActionListener(e -> component.selectAll());
+        
+        popup.add(copyItem);
+        popup.add(cutItem);
+        popup.add(pasteItem);
+        popup.addSeparator();
+        popup.add(selectAllItem);
+        
+        component.setComponentPopupMenu(popup);
+    }
+
+    private void copyRecord() {
+        String text = sttArea.getText();
+        if (!text.isEmpty()) {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(text), null);
+            JOptionPane.showMessageDialog(this, "음성 기록 복사 완료!", "알림", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void deleteRecord() {
+        TranscriptResult selected = historyList.getSelectedValue();
+        if (selected == null) return;
+        
+        int confirm = JOptionPane.showConfirmDialog(this, "선택한 변환 기록을 영구적으로 삭제하시겠습니까?", "삭제 확인", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            try {
+                transcriptDao.deleteTranscript(selected.getId());
+                allHistory.removeIf(t -> t.getId().equals(selected.getId()));
+                updateHistoryList();
+                currentDisplayedResult = null;
+                sttArea.setText("");
+                memoArea.setText("");
+                summaryArea.setText("");
+                keywordsArea.setText("");
+                enableActions(false);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "삭제 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 }
