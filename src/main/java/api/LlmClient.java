@@ -14,6 +14,8 @@ import java.time.Duration;
 
 /**
  * OpenAI Chat API를 호출하여 변환된 텍스트의 요약 및 키워드를 추출하는 클라이언트 클래스임.
+  *
+ * @author 개발자
  */
 public class LlmClient {
 
