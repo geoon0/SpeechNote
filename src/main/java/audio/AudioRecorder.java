@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 선택된 마이크와 시스템 오디오를 통해 실시간으로 소리를 캡처하고 .wav 파일로 저장하는 클래스임.
+  *
+ * @author 개발자
  */
 public class AudioRecorder {
 
@@ -147,7 +149,7 @@ public class AudioRecorder {
                     }
                 }
             } catch (IOException e) {
-                System.err.println("오디오 캡처 중 예외 발생: " + e.getMessage());
+                common.LoggerUtil.logError("오디오 캡처 중 예외 발생", e);
             } finally {
                 currentLevel = 0;
                 if (micLine != null) { micLine.stop(); micLine.close(); }
@@ -162,7 +164,7 @@ public class AudioRecorder {
                          AudioInputStream ais = new AudioInputStream(fis, outputFormat, tempPcmPath.toFile().length() / outputFormat.getFrameSize())) {
                         AudioSystem.write(ais, AudioFileFormat.Type.WAVE, recordedFilePath.toFile());
                     } catch (IOException e) {
-                        System.err.println("WAV 변환 중 예외 발생: " + e.getMessage());
+                        common.LoggerUtil.logError("WAV 변환 중 예외 발생", e);
                     } finally {
                         try { Files.deleteIfExists(tempPcmPath); } catch (IOException ignored) {}
                         state = State.IDLE;
