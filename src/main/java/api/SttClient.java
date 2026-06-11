@@ -18,6 +18,8 @@ import java.util.logging.Logger;
 /**
  * OpenAI Whisper STT API를 호출하여 음성 파일을 텍스트로 변환하는 클라이언트 클래스임.
  * java.net.http.HttpClient와 MultipartBodyPublisher를 활용하여 요청을 수행함.
+  *
+ * @author 개발자
  */
 public class SttClient {
 
