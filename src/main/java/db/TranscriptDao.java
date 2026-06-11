@@ -19,7 +19,7 @@ public class TranscriptDao {
      * @param result API로부터 받은 최종 변환 결과 객체
      */
     public void saveTranscript(TranscriptResult result) throws SQLException {
-        String insertTranscript = "INSERT INTO transcripts (id, source, language, raw_text, summary, keywords, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String insertTranscript = "INSERT INTO transcripts (id, user_id, source, language, raw_text, summary, keywords, memo, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String insertSegment = "INSERT INTO segments (transcript_id, start_sec, end_sec, speaker, content) VALUES (?, ?, ?, ?, ?)";
 
         try (Connection conn = DatabaseManager.getConnection()) {
@@ -31,12 +31,15 @@ public class TranscriptDao {
 
                 // 1. transcripts 테이블 저장
                 tStmt.setString(1, result.getId());
-                tStmt.setString(2, result.getSource());
-                tStmt.setString(3, result.getLanguage());
-                tStmt.setString(4, result.getRawText());
-                tStmt.setString(5, result.getSummary());
-                tStmt.setString(6, result.getKeywords());
-                tStmt.setString(7, result.getCreatedAt().toString());
+                tStmt.setString(2, result.getUserId());
+                tStmt.setString(3, result.getSource());
+                tStmt.setString(4, result.getLanguage());
+                tStmt.setString(5, result.getRawText());
+                tStmt.setString(6, result.getSummary());
+                tStmt.setString(7, result.getKeywords());
+                tStmt.setString(8, result.getMemo());
+                tStmt.setString(9, result.getAudioPath());
+                tStmt.setString(10, result.getCreatedAt().toString());
                 tStmt.executeUpdate();
 
                 // 2. segments 테이블 저장 (Batch 처리로 성능 향상)
@@ -68,19 +71,21 @@ public class TranscriptDao {
     }
 
     /**
-     * DB에 저장된 모든 변환 기록을 불러옴 (최신순).
+     * DB에 저장된 특정 사용자의 모든 변환 기록을 불러옴 (최신순).
      * @return TranscriptResult 객체 리스트
      */
-    public List<TranscriptResult> getAllTranscripts() throws SQLException {
+    public List<TranscriptResult> getAllTranscripts(String userId) throws SQLException {
         List<TranscriptResult> results = new ArrayList<>();
-        String selectTranscripts = "SELECT * FROM transcripts ORDER BY created_at DESC";
+        String selectTranscripts = "SELECT * FROM transcripts WHERE user_id = ? ORDER BY created_at DESC";
         String selectSegments = "SELECT * FROM segments WHERE transcript_id = ? ORDER BY start_sec ASC";
 
         try (Connection conn = DatabaseManager.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(selectTranscripts)) {
-
-            try (PreparedStatement sStmt = conn.prepareStatement(selectSegments)) {
+             PreparedStatement tStmt = conn.prepareStatement(selectTranscripts)) {
+            
+            tStmt.setString(1, userId);
+            try (ResultSet rs = tStmt.executeQuery();
+                 PreparedStatement sStmt = conn.prepareStatement(selectSegments)) {
+                
                 while (rs.next()) {
                     String id = rs.getString("id");
                     String source = rs.getString("source");
@@ -88,6 +93,8 @@ public class TranscriptDao {
                     String rawText = rs.getString("raw_text");
                     String summary = rs.getString("summary");
                     String keywords = rs.getString("keywords");
+                    String memo = rs.getString("memo");
+                    String audioPath = rs.getString("audio_path");
                     Instant createdAt = Instant.parse(rs.getString("created_at"));
 
                     // 해당 트랜스크립트의 세부 세그먼트 배열 조회
@@ -103,9 +110,11 @@ public class TranscriptDao {
                         }
                     }
 
-                    TranscriptResult tr = new TranscriptResult(id, source, language, segments, rawText, createdAt);
+                    TranscriptResult tr = new TranscriptResult(id, userId, source, language, segments, rawText, createdAt);
                     tr.setSummary(summary);
                     tr.setKeywords(keywords);
+                    tr.setMemo(memo);
+                    tr.setAudioPath(audioPath);
                     results.add(tr);
                 }
             }
@@ -131,12 +140,26 @@ public class TranscriptDao {
      * @param result 요약과 키워드가 채워진 TranscriptResult 객체
      */
     public void updateLlmData(TranscriptResult result) throws SQLException {
-        String updateSql = "UPDATE transcripts SET summary = ?, keywords = ? WHERE id = ?";
+        String updateSql = "UPDATE transcripts SET summary = ?, keywords = ?, memo = ? WHERE id = ?";
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
             pstmt.setString(1, result.getSummary());
             pstmt.setString(2, result.getKeywords());
-            pstmt.setString(3, result.getId());
+            pstmt.setString(3, result.getMemo());
+            pstmt.setString(4, result.getId());
+            pstmt.executeUpdate();
+        }
+    }
+
+    /**
+     * 특정 ID의 변환 원문 텍스트를 수정하여 업데이트함 (F-12)
+     */
+    public void updateRawText(String id, String newText) throws SQLException {
+        String updateSql = "UPDATE transcripts SET raw_text = ? WHERE id = ?";
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
+            pstmt.setString(1, newText);
+            pstmt.setString(2, id);
             pstmt.executeUpdate();
         }
     }
