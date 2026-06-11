@@ -3,6 +3,8 @@ package common;
 /**
  * 특정 시간 범위의 텍스트 변환 정보를 담는 클래스임.
  * 시작 시간, 끝 시간, 해당 구간의 텍스트 내용을 보관함.
+  *
+ * @author 개발자
  */
 public class TextSegment {
     
