@@ -8,6 +8,8 @@ import java.util.List;
 
 /**
  * 시스템에 연결된 오디오 장치를 조회하고 관리하는 유틸리티 클래스임.
+  *
+ * @author 개발자
  */
 public class AudioDeviceManager {
 
