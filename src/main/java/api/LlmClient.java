@@ -13,13 +13,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * OpenAI Chat API를 호출하여 변환된 텍스트의 요약 및 키워드를 추출하는 클라이언트 클래스임.
-  *
+ * Google Gemini API를 호출하여 변환된 텍스트의 요약 및 키워드를 추출하는 클라이언트 클래스임.
+ *
  * @author 개발자
  */
 public class LlmClient {
 
-    private static final String OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+    private static final String GEMINI_URL =
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
     private final HttpClient httpClient;
 
     public LlmClient() {
@@ -29,7 +30,7 @@ public class LlmClient {
     }
 
     /**
-     * STT 결과 텍스트를 입력받아 LLM 요약 및 키워드 추출을 수행함.
+     * STT 결과 텍스트를 입력받아 Gemini LLM 요약 및 키워드 추출을 수행함.
      * @param text 원본 텍스트
      * @return [0] 요약문, [1] 키워드 목록
      */
@@ -45,47 +46,42 @@ public class LlmClient {
                         "형식: {\"summary\": \"...\", \"keywords\": \"...\"}\n\n" +
                         "텍스트: " + text;
 
-        JSONObject requestBody = new JSONObject();
-        requestBody.put("model", "gpt-3.5-turbo");
-        
-        JSONArray messages = new JSONArray();
-        JSONObject systemMsg = new JSONObject();
-        systemMsg.put("role", "system");
-        systemMsg.put("content", "You are a helpful assistant that summarizes text and extracts keywords. You only reply in JSON format.");
-        messages.put(systemMsg);
-        
-        JSONObject userMsg = new JSONObject();
-        userMsg.put("role", "user");
-        userMsg.put("content", prompt);
-        messages.put(userMsg);
-        
-        requestBody.put("messages", messages);
-        requestBody.put("response_format", new JSONObject().put("type", "json_object"));
-        requestBody.put("temperature", 0.3);
+        JSONObject part = new JSONObject().put("text", prompt);
+        JSONObject content = new JSONObject().put("parts", new JSONArray().put(part));
+        JSONObject generationConfig = new JSONObject()
+                .put("temperature", 0.3)
+                .put("responseMimeType", "application/json");
+        JSONObject requestBody = new JSONObject()
+                .put("contents", new JSONArray().put(content))
+                .put("generationConfig", generationConfig);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(OPENAI_URL))
+                .uri(URI.create(GEMINI_URL + apiKey))
                 .timeout(Duration.ofSeconds(60))
-                .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                 .build();
 
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 JSONObject resObj = new JSONObject(response.body());
-                JSONArray choices = resObj.getJSONArray("choices");
-                String content = choices.getJSONObject(0).getJSONObject("message").getString("content");
-                
-                JSONObject parsed = new JSONObject(content);
+                String contentText = resObj
+                        .getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text");
+
+                JSONObject parsed = new JSONObject(contentText);
                 String summary = parsed.optString("summary", "요약 생성 실패");
                 String keywords = parsed.optString("keywords", "키워드 추출 실패");
-                
+
                 return new String[]{summary, keywords};
             } else {
-                throw new ApiException("LLM API 오류 (" + response.statusCode() + "): " + response.body());
+                throw new ApiException("Gemini API 오류 (" + response.statusCode() + "): " + response.body());
             }
         } catch (IOException | InterruptedException e) {
             throw new ApiException("LLM 통신 중 오류 발생: " + e.getMessage());
