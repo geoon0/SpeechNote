@@ -17,7 +17,7 @@ public class ApiConfig {
     private static final String CONFIG_FILE = "config.properties";
 
     // 기본 커스텀 STT API 서버 주소
-    private static final String DEFAULT_STT_URL = "https://b93b-123-212-224-99.ngrok-free.app/transcribe";
+    private static final String DEFAULT_STT_URL = "https://massive-condor-eminent.ngrok-free.app/transcribe";
 
     static {
         loadConfig();
