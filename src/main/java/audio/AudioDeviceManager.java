@@ -24,7 +24,6 @@ public class AudioDeviceManager {
         for (Mixer.Info mixerInfo : mixers) {
             try {
                 Mixer mixer = AudioSystem.getMixer(mixerInfo);
-                // TargetDataLine(마이크 입력 등)을 지원하는지 검사
                 if (mixer.isLineSupported(new javax.sound.sampled.Line.Info(TargetDataLine.class))) {
                     inputs.add(mixerInfo);
                 }
@@ -33,5 +32,17 @@ public class AudioDeviceManager {
             }
         }
         return inputs;
+    }
+
+    /**
+     * 이름 기반으로 시스템 오디오 루프백 장치일 가능성이 높은지 판별함.
+     * "Stereo Mix", "Monitor", "Loopback", "CABLE", "출력" 등이 포함된 장치를 후보로 봄.
+     */
+    public static boolean isLikelyLoopback(Mixer.Info info) {
+        String name = info.getName().toLowerCase();
+        return name.contains("stereo mix") || name.contains("스테레오 믹스")
+            || name.contains("loopback") || name.contains("monitor")
+            || name.contains("cable") || name.contains("출력")
+            || name.contains("what u hear") || name.contains("wave out");
     }
 }

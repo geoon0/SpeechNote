@@ -17,11 +17,12 @@ public class SettingsDialog extends JDialog {
 
     private Mixer.Info selectedMicrophone;
     private Mixer.Info selectedSystemAudio;
-    
+
     private JComboBox<String> micComboBox;
     private JComboBox<String> sysComboBox;
     private List<Mixer.Info> audioInputs;
-    
+    private List<Mixer.Info> sysAudioInputs; // 루프백 후보 우선 정렬
+
     private JTextField urlField;
     private JPasswordField keyField;
 
@@ -50,31 +51,54 @@ public class SettingsDialog extends JDialog {
         audioPanel.add(new JLabel("사용할 마이크 선택:"));
         
         audioInputs = AudioDeviceManager.getAudioInputs();
-        
-        // '사용 안 함' 옵션을 포함한 이름 배열
+
+        // 시스템 오디오 목록: 루프백 후보(Monitor, Mix 등)를 앞으로 정렬
+        sysAudioInputs = new java.util.ArrayList<>();
+        List<Mixer.Info> nonLoopback = new java.util.ArrayList<>();
+        for (Mixer.Info info : audioInputs) {
+            if (AudioDeviceManager.isLikelyLoopback(info)) sysAudioInputs.add(info);
+            else nonLoopback.add(info);
+        }
+        sysAudioInputs.addAll(nonLoopback);
+
+        // 마이크 드롭다운
         String[] micNames = new String[audioInputs.size() + 1];
         micNames[0] = "선택 안 함 (None)";
         int micSelectedIndex = 0;
-        int sysSelectedIndex = 0;
-        
         for (int i = 0; i < audioInputs.size(); i++) {
-            Mixer.Info info = audioInputs.get(i);
-            micNames[i + 1] = info.getName();
-            if (selectedMicrophone != null && info.getName().equals(selectedMicrophone.getName())) {
+            micNames[i + 1] = audioInputs.get(i).getName();
+            if (selectedMicrophone != null && audioInputs.get(i).getName().equals(selectedMicrophone.getName())) {
                 micSelectedIndex = i + 1;
             }
+        }
+        micComboBox = new JComboBox<>(micNames);
+        micComboBox.setSelectedIndex(micSelectedIndex);
+        audioPanel.add(micComboBox);
+
+        // 시스템 오디오 드롭다운: 루프백 후보에 ★ 표시
+        String[] sysNames = new String[sysAudioInputs.size() + 1];
+        sysNames[0] = "선택 안 함 (None)";
+        int sysSelectedIndex = 0;
+        for (int i = 0; i < sysAudioInputs.size(); i++) {
+            Mixer.Info info = sysAudioInputs.get(i);
+            String label = AudioDeviceManager.isLikelyLoopback(info) ? "★ " + info.getName() : info.getName();
+            sysNames[i + 1] = label;
             if (selectedSystemAudio != null && info.getName().equals(selectedSystemAudio.getName())) {
                 sysSelectedIndex = i + 1;
             }
         }
-        
-        micComboBox = new JComboBox<>(micNames);
-        micComboBox.setSelectedIndex(micSelectedIndex);
-        audioPanel.add(micComboBox);
-        
-        audioPanel.add(new JLabel("사용할 시스템 오디오 장치 (Stereo Mix 등):"));
-        sysComboBox = new JComboBox<>(micNames);
+
+        audioPanel.add(new JLabel("사용할 시스템 오디오 장치 (★ = 루프백 권장):"));
+        sysComboBox = new JComboBox<>(sysNames);
         sysComboBox.setSelectedIndex(sysSelectedIndex);
+
+        // 루프백 장치가 없으면 경고 툴팁 표시
+        boolean hasLoopback = sysAudioInputs.stream().anyMatch(AudioDeviceManager::isLikelyLoopback);
+        if (!hasLoopback) {
+            sysComboBox.setToolTipText("Windows 소리 설정 → 녹음 탭 → 빈 곳 우클릭 → '비활성 장치 표시' → 스테레오 믹스 활성화");
+        } else {
+            sysComboBox.setToolTipText("★ 표시된 장치가 시스템 소리 캡처에 적합합니다");
+        }
         audioPanel.add(sysComboBox);
         
         centerPanel.add(audioPanel);
@@ -106,7 +130,7 @@ public class SettingsDialog extends JDialog {
             selectedMicrophone = (micIdx == 0) ? null : audioInputs.get(micIdx - 1);
             
             int sysIdx = sysComboBox.getSelectedIndex();
-            selectedSystemAudio = (sysIdx == 0) ? null : audioInputs.get(sysIdx - 1);
+            selectedSystemAudio = (sysIdx == 0) ? null : sysAudioInputs.get(sysIdx - 1);
 
             // API 설정 저장
             String url = urlField.getText().trim();
