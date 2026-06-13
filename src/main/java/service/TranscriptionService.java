@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class TranscriptionService {
 
-    // OpenAI API 호출을 대행하는 핵심 API 클라이언트 객체
+    // STT API 호출을 대행하는 핵심 API 클라이언트 객체
     private final SttClient sttClient = new SttClient();
     
     // LLM API 클라이언트 객체
@@ -29,7 +29,7 @@ public class TranscriptionService {
     private final db.TranscriptDao transcriptDao = new db.TranscriptDao();
 
     /**
-     * 로컬 음성 파일을 Whisper API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 반환함.
+     * 로컬 음성 파일을 STT API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 반환함.
      * @param audioFile 변환 처리를 진행할 로컬 음성 파일(.wav)의 Path 객체
      * @param language 인식 대상 언어 정보 (예: "ko", "en")
      * @return 식별 고유 ID와 현재 시각, 텍스트가 바인딩된 TranscriptResult 결과 객체
@@ -60,7 +60,7 @@ public class TranscriptionService {
     }
 
     /**
-     * 로컬 음성 파일을 Whisper API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 비동기적으로 반환함.
+     * 로컬 음성 파일을 STT API를 통해 텍스트로 변환하고, 메타데이터를 포함한 결과를 비동기적으로 반환함.
      * @param audioFile 변환 처리를 진행할 로컬 음성 파일(.wav)의 Path 객체
      * @param language 인식 대상 언어 정보 (예: "ko", "en")
      * @return TranscriptResult 결과를 담은 CompletableFuture 객체

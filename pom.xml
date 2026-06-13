@@ -15,7 +15,7 @@
     </properties>
 
     <dependencies>
-        <!-- OpenAI Whisper API 응답 파싱용 JSON 라이브러리 -->
+        <!-- STT/LLM API 응답 파싱용 JSON 라이브러리 -->
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>

@@ -6,7 +6,7 @@ import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 개발된 STT 모듈의 OpenAI API 연동 상태를 검증하기 위한 데모 실행 클래스임.
+ * 개발된 STT 모듈의 커스텀 STT API 연동 상태를 검증하기 위한 데모 실행 클래스임.
  * 프로젝트 루트 디렉토리에 'test.wav' 파일 및 'config.properties' 설정이 필요함.
   *
  * @author 개발자
@@ -14,7 +14,7 @@ import java.util.concurrent.CompletableFuture;
 public class Demo {
     public static void main(String[] args) {
         System.out.println("=========================================");
-        System.out.println("    🎙️ OpenAI Whisper STT API 검증 데모    ");
+        System.out.println("    🎙️ 커스텀 STT API 검증 데모    ");
         System.out.println("=========================================");
 
         try {

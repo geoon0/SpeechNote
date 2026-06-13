@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * OpenAI Whisper API 응답 데이터를 객체로 파싱하여 보관하는 DTO 클래스임.
+ * 커스텀 STT API 응답 데이터를 객체로 파싱하여 보관하는 DTO 클래스임.
  * 전체 텍스트 및 시간대별 텍스트 세그먼트를 분리 저장함.
   *
  * @author 개발자

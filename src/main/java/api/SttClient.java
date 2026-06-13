@@ -16,7 +16,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * OpenAI Whisper STT API를 호출하여 음성 파일을 텍스트로 변환하는 클라이언트 클래스임.
+ * 커스텀 STT API 서버를 호출하여 음성 파일을 텍스트로 변환하는 클라이언트 클래스임.
+ * (서버 주소는 config.properties의 stt.api.url에서 읽어옴)
  * java.net.http.HttpClient와 MultipartBodyPublisher를 활용하여 요청을 수행함.
   *
  * @author 개발자
@@ -65,7 +66,7 @@ public class SttClient {
                         .build();
 
                 // 3. HTTP 동기 전송 수행
-                logger.info("[SttClient] OpenAI Whisper API 서버로 HTTP POST 요청 전송 시도 (" + attempt + "/" + maxRetries + ")");
+                logger.info("[SttClient] STT API 서버로 HTTP POST 요청 전송 시도 (" + attempt + "/" + maxRetries + ")");
                 HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
 
                 // 4. HTTP 상태 코드에 따른 예외 분기 처리
