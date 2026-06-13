@@ -81,10 +81,43 @@ public class LlmClient {
 
                 return new String[]{summary, keywords};
             } else {
-                throw new ApiException("Gemini API 오류 (" + response.statusCode() + "): " + response.body());
+                throw new ApiException(buildErrorMessage(response.statusCode(), response.body()));
             }
         } catch (IOException | InterruptedException e) {
             throw new ApiException("LLM 통신 중 오류 발생: " + e.getMessage());
         }
+    }
+
+    /**
+     * Gemini API의 오류 응답(JSON)을 사람이 읽기 쉬운 메시지로 변환함.
+     * 거대한 원본 JSON을 그대로 노출하지 않고, 상태 코드별로 핵심만 안내함.
+     */
+    private String buildErrorMessage(int status, String body) {
+        // 응답 JSON에서 error.message / error.status 추출 시도
+        String apiMessage = null;
+        String apiStatus = null;
+        try {
+            JSONObject err = new JSONObject(body).optJSONObject("error");
+            if (err != null) {
+                apiMessage = err.optString("message", null);
+                apiStatus = err.optString("status", null);
+            }
+        } catch (Exception ignored) {
+            // 본문이 JSON이 아니면 무시하고 일반 메시지로 처리
+        }
+
+        if (status == 429 || "RESOURCE_EXHAUSTED".equals(apiStatus)) {
+            return "Gemini API 무료 사용량(quota)을 초과했습니다.\n"
+                 + "잠시 후 다시 시도하거나, Google AI Studio에서 새 API 키를 발급받아 설정에 입력해 주세요.";
+        }
+        if (status == 400 || status == 403) {
+            return "Gemini API 키가 올바르지 않거나 권한이 없습니다. 설정에서 API 키를 확인해 주세요."
+                 + (apiMessage != null ? "\n(상세: " + apiMessage + ")" : "");
+        }
+        if (status >= 500) {
+            return "Gemini 서버 오류가 발생했습니다 (" + status + "). 잠시 후 다시 시도해 주세요.";
+        }
+        // 그 외: 추출된 메시지가 있으면 그것을, 없으면 상태 코드만 안내
+        return "Gemini API 오류 (" + status + ")" + (apiMessage != null ? ": " + apiMessage : "");
     }
 }
