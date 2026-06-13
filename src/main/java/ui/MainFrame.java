@@ -94,6 +94,12 @@ public class MainFrame extends JFrame {
     private int recordSeconds = 0;
     private boolean isSttEditMode = false;
 
+    // 메모 자동 저장(Auto-save)
+    private Timer autoSaveTimer;
+    private boolean suppressMemoAutoSave = false;
+    private boolean handlingSelection = false;
+    private JLabel saveStatusLabel;
+
     public MainFrame(String userId, String username) {
         this.userId = userId;
         this.username = username;
@@ -109,6 +115,14 @@ public class MainFrame extends JFrame {
         
         initUI();
         loadHistoryFromDB();
+
+        // 창을 닫기 직전 작성 중이던 메모를 저장
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                flushMemo();
+            }
+        });
     }
 
     private void initUI() {
@@ -128,12 +142,16 @@ public class MainFrame extends JFrame {
         newMemoBtn = new JButton("➕ 새 메모");
         newMemoBtn.setToolTipText("빈 메모를 새로 작성합니다");
         saveMemoBtn = new JButton("💾 메모 저장");
-        saveMemoBtn.setToolTipText("현재 메모를 저장합니다");
+        saveMemoBtn.setToolTipText("현재 메모를 즉시 저장합니다 (입력을 멈추면 자동 저장됩니다)");
+        saveStatusLabel = new JLabel(" ");
+        saveStatusLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        saveStatusLabel.setForeground(new Color(0, 128, 0));
         userMenuBtn = new JButton("👤 " + username + " ▼");
         userMenuBtn.setToolTipText("환경설정 · 비밀번호 변경 · 로그아웃 · 회원 탈퇴");
         setupUserMenu();
         rightActionsPanel.add(newMemoBtn);
         rightActionsPanel.add(saveMemoBtn);
+        rightActionsPanel.add(saveStatusLabel);
         rightActionsPanel.add(Box.createHorizontalStrut(10));
         rightActionsPanel.add(userMenuBtn);
         
@@ -396,6 +414,7 @@ public class MainFrame extends JFrame {
     }
 
     private void logout() {
+        flushMemo();
         if (currentClip != null) currentClip.close();
         LoginFrame loginFrame = new LoginFrame();
         loginFrame.setVisible(true);
@@ -428,6 +447,15 @@ public class MainFrame extends JFrame {
     }
 
     private void setupListeners() {
+        // 메모 자동 저장: 입력이 멈추고 1.5초 후 저장 (디바운스)
+        autoSaveTimer = new Timer(1500, e -> autoPersistMemo());
+        autoSaveTimer.setRepeats(false);
+        memoArea.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { scheduleAutoSave(); }
+            public void removeUpdate(DocumentEvent e) { scheduleAutoSave(); }
+            public void changedUpdate(DocumentEvent e) { scheduleAutoSave(); }
+        });
+
         // Search & Filter Listeners (F-15, F-16)
         searchField.addFocusListener(new java.awt.event.FocusAdapter() {
             public void focusGained(java.awt.event.FocusEvent evt) {
@@ -453,8 +481,12 @@ public class MainFrame extends JFrame {
         sortComboBox.addActionListener(e -> updateHistoryList());
 
         historyList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (e.getValueIsAdjusting() || handlingSelection) return;
+            handlingSelection = true;
+            try {
+                // 클릭한 항목을 먼저 확보한 뒤, 이전 메모를 저장하고 새 항목을 렌더링
                 TranscriptResult selected = historyList.getSelectedValue();
+                flushMemo();
                 currentDisplayedResult = selected;
                 if (selected != null) {
                     renderResultToUI(selected);
@@ -462,6 +494,8 @@ public class MainFrame extends JFrame {
                 } else {
                     enableActions(false);
                 }
+            } finally {
+                handlingSelection = false;
             }
         });
         
@@ -556,9 +590,11 @@ public class MainFrame extends JFrame {
         });
 
         newMemoBtn.addActionListener(e -> {
+            flushMemo();
             historyList.clearSelection();
+            currentDisplayedResult = null;
             sttArea.setText("");
-            memoArea.setText("");
+            setMemoText("");
             summaryArea.setText("");
             keywordsArea.setText("");
             memoArea.requestFocusInWindow();
@@ -566,6 +602,7 @@ public class MainFrame extends JFrame {
         });
 
         saveMemoBtn.addActionListener(e -> {
+            if (autoSaveTimer != null) autoSaveTimer.stop();
             String text = memoArea.getText();
             if (text.trim().isEmpty() && currentDisplayedResult == null) {
                 JOptionPane.showMessageDialog(this, "저장할 내용이 없습니다.", "알림", JOptionPane.WARNING_MESSAGE);
@@ -575,7 +612,8 @@ public class MainFrame extends JFrame {
             try {
                 if (currentDisplayedResult != null) {
                     currentDisplayedResult.setMemo(text);
-                    transcriptDao.updateLlmData(currentDisplayedResult); 
+                    transcriptDao.updateLlmData(currentDisplayedResult);
+                    markSaved();
                     JOptionPane.showMessageDialog(this, "메모가 성공적으로 업데이트되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
                     historyList.repaint(); // To update the memo preview in list
                 } else {
@@ -585,9 +623,11 @@ public class MainFrame extends JFrame {
                     );
                     newMemo.setMemo(text);
                     transcriptDao.saveTranscript(newMemo);
+                    currentDisplayedResult = newMemo;
                     allHistory.add(0, newMemo);
                     updateHistoryList();
                     historyList.setSelectedIndex(0);
+                    markSaved();
                     JOptionPane.showMessageDialog(this, "새 메모가 성공적으로 저장되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
                 }
             } catch (Exception ex) {
@@ -614,8 +654,9 @@ public class MainFrame extends JFrame {
                 enableActions(false);
                 
                 historyList.clearSelection();
+                currentDisplayedResult = null;
                 sttArea.setText("");
-                memoArea.setText("");
+                setMemoText("");
                 summaryArea.setText("");
                 keywordsArea.setText("");
                 progressBar.setString("🔴 마이크 녹음 중입니다...");
@@ -723,10 +764,11 @@ public class MainFrame extends JFrame {
             cancelBtn.setEnabled(true);
             historyList.clearSelection(); 
             
+            currentDisplayedResult = null;
             progressBar.setString("서버에서 변환 중입니다. 잠시만 기다려주세요...");
             progressBar.setVisible(true);
             sttArea.setText("");
-            memoArea.setText("");
+            setMemoText("");
             summaryArea.setText("");
             keywordsArea.setText("");
 
@@ -780,7 +822,8 @@ public class MainFrame extends JFrame {
         summarizeBtn.addActionListener(e -> {
             TranscriptResult selected = historyList.getSelectedValue();
             if (selected == null) return;
-            
+            flushMemo(); // 요약 후 재렌더링 시 미저장 메모가 덮어써지지 않도록 먼저 저장
+
             progressBar.setString("LLM 요약 및 키워드 추출 중입니다...");
             progressBar.setVisible(true);
             summarizeBtn.setEnabled(false);
@@ -801,6 +844,114 @@ public class MainFrame extends JFrame {
                 return null;
             });
         });
+    }
+
+    /** 메모 입력이 감지되면 자동 저장 타이머를 재시작함 (디바운스). */
+    private void scheduleAutoSave() {
+        if (suppressMemoAutoSave) return;
+        saveStatusLabel.setForeground(Color.GRAY);
+        saveStatusLabel.setText("입력 중...");
+        if (autoSaveTimer != null) autoSaveTimer.restart();
+    }
+
+    /** 대기 중인 자동 저장을 즉시 수행함 (기록 전환·녹음 시작·창 닫기 등 이탈 직전 호출). */
+    private void flushMemo() {
+        if (autoSaveTimer != null) autoSaveTimer.stop();
+        autoPersistMemo();
+    }
+
+    /**
+     * 현재 메모 영역의 내용을 DB에 저장함. 팝업 없이 조용히 동작함.
+     * - 기존 기록이면 메모를 갱신하고, 새 메모면 레코드를 생성함.
+     * - 입력 중 커서/포커스가 튀지 않도록 목록 선택은 변경하지 않음.
+     */
+    private void autoPersistMemo() {
+        if (suppressMemoAutoSave) return;
+        String text = memoArea.getText();
+        if (text.trim().isEmpty()) {
+            // 내용이 비면, 부가 데이터 없는 순수 메모는 자동 삭제
+            if (currentDisplayedResult != null && isDeletableEmptyMemo(currentDisplayedResult)) {
+                deleteEmptyMemo(currentDisplayedResult);
+            }
+            return; // 저장할 내용 없음
+        }
+        try {
+            if (currentDisplayedResult != null) {
+                String existing = currentDisplayedResult.getMemo() != null ? currentDisplayedResult.getMemo() : "";
+                if (text.equals(existing)) return; // 변경 없음 → 불필요한 쓰기 방지
+                currentDisplayedResult.setMemo(text);
+                transcriptDao.updateLlmData(currentDisplayedResult);
+                historyList.repaint();
+            } else {
+                TranscriptResult newMemo = new TranscriptResult(
+                        java.util.UUID.randomUUID().toString(), userId,
+                        "MEMO", "ko", new java.util.ArrayList<>(), "", java.time.Instant.now());
+                newMemo.setMemo(text);
+                transcriptDao.saveTranscript(newMemo);
+                currentDisplayedResult = newMemo;
+                allHistory.add(0, newMemo);
+                handlingSelection = true; // 목록 재구성이 선택 리스너를 건드리지 않도록 보호
+                try {
+                    updateHistoryList();
+                } finally {
+                    handlingSelection = false;
+                }
+            }
+            markSaved();
+        } catch (Exception ex) {
+            common.LoggerUtil.logError("메모 자동 저장 실패", ex);
+            saveStatusLabel.setForeground(Color.RED);
+            saveStatusLabel.setText("⚠ 자동 저장 실패");
+        }
+    }
+
+    /** 부가 데이터(STT 원문·요약·키워드)가 없는 순수 메모인지 판별함. */
+    private boolean isDeletableEmptyMemo(TranscriptResult r) {
+        return "MEMO".equals(r.getSource())
+                && isBlank(r.getRawText())
+                && isBlank(r.getSummary())
+                && isBlank(r.getKeywords());
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    /** 내용이 빈 순수 메모 레코드를 DB와 목록에서 제거함. */
+    private void deleteEmptyMemo(TranscriptResult r) {
+        try {
+            transcriptDao.deleteTranscript(r.getId());
+            allHistory.removeIf(t -> t.getId().equals(r.getId()));
+            currentDisplayedResult = null;
+            handlingSelection = true; // 목록 재구성이 선택 리스너를 건드리지 않도록 보호
+            try {
+                updateHistoryList();
+            } finally {
+                handlingSelection = false;
+            }
+            enableActions(false);
+            saveStatusLabel.setText(" ");
+        } catch (Exception ex) {
+            common.LoggerUtil.logError("빈 메모 자동 삭제 실패", ex);
+        }
+    }
+
+    /** 저장 완료 상태를 상단에 표시함. */
+    private void markSaved() {
+        String t = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                .format(java.time.LocalTime.now());
+        saveStatusLabel.setForeground(new Color(0, 128, 0));
+        saveStatusLabel.setText("✓ 자동 저장됨 " + t);
+    }
+
+    /** 메모 영역을 프로그램적으로 설정함 (자동 저장 트리거 없이). */
+    private void setMemoText(String text) {
+        suppressMemoAutoSave = true;
+        memoArea.setText(text);
+        memoArea.setCaretPosition(0);
+        suppressMemoAutoSave = false;
+        if (autoSaveTimer != null) autoSaveTimer.stop();
+        saveStatusLabel.setText(" ");
     }
 
     private void updateHistoryList() {
@@ -939,9 +1090,8 @@ public class MainFrame extends JFrame {
         sttArea.setText(sb.toString().trim());
         sttArea.setCaretPosition(0);
         
-        // 중앙 우측: 내 개인 메모
-        memoArea.setText(result.getMemo() != null ? result.getMemo() : "");
-        memoArea.setCaretPosition(0);
+        // 중앙 우측: 내 개인 메모 (불러오기는 자동 저장을 트리거하지 않도록 setMemoText 사용)
+        setMemoText(result.getMemo() != null ? result.getMemo() : "");
         
         // 우측 AI 사이드바: 요약 및 키워드
         summaryArea.setText(result.getSummary() != null ? result.getSummary() : "아직 요약이 없습니다. 새로고침을 눌러주세요.");
@@ -1034,12 +1184,12 @@ public class MainFrame extends JFrame {
             try {
                 transcriptDao.deleteTranscript(selected.getId());
                 allHistory.removeIf(t -> t.getId().equals(selected.getId()));
-                updateHistoryList();
                 currentDisplayedResult = null;
                 sttArea.setText("");
-                memoArea.setText("");
+                setMemoText("");
                 summaryArea.setText("");
                 keywordsArea.setText("");
+                updateHistoryList();
                 enableActions(false);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "삭제 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
