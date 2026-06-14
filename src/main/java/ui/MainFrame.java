@@ -13,6 +13,7 @@ import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
+import javax.sound.sampled.FloatControl;
 import javax.sound.sampled.Mixer;
 import javax.sound.sampled.SourceDataLine;
 import javax.swing.*;
@@ -58,6 +59,7 @@ public class MainFrame extends JFrame {
     private SourceDataLine audioLine = null;
     private Thread audioThread = null;
     private volatile boolean audioStopRequested = false;
+    private float playbackVolume = 0.8f; // 재생 볼륨 (0.0 ~ 1.0)
     
     // Top Bar UI
     private JLabel titleLabel;
@@ -88,6 +90,7 @@ public class MainFrame extends JFrame {
     private JButton editSttBtn;
     private JButton playAudioBtn;
     private JButton stopAudioBtn;
+    private JSlider volumeSlider;
     
     // Right Sidebar UI (AI Assistant)
     private JTextArea summaryArea;
@@ -265,7 +268,18 @@ public class MainFrame extends JFrame {
         playAudioBtn.setEnabled(false);
         stopAudioBtn.setEnabled(false);
         editSttBtn.setEnabled(false);
-        
+
+        // 재생 볼륨 슬라이더 (0~100)
+        volumeSlider = new JSlider(0, 100, Math.round(playbackVolume * 100));
+        volumeSlider.setPreferredSize(new Dimension(90, 22));
+        volumeSlider.setToolTipText("재생 볼륨");
+        volumeSlider.addChangeListener(e -> {
+            playbackVolume = volumeSlider.getValue() / 100f;
+            applyVolume(audioLine, playbackVolume); // 재생 중이면 즉시 반영
+        });
+
+        sttHeaderPanel.add(new JLabel("🔊"));
+        sttHeaderPanel.add(volumeSlider);
         sttHeaderPanel.add(playAudioBtn);
         sttHeaderPanel.add(stopAudioBtn);
         sttHeaderPanel.add(editSttBtn);
@@ -584,6 +598,7 @@ public class MainFrame extends JFrame {
                 AudioInputStream playAis = AudioSystem.getAudioInputStream(playFormat, rawAis);
                 audioLine = (SourceDataLine) AudioSystem.getLine(info);
                 audioLine.open(playFormat);
+                applyVolume(audioLine, playbackVolume);
                 audioLine.start();
                 audioStopRequested = false;
                 playAudioBtn.setEnabled(false);
@@ -1109,6 +1124,24 @@ public class MainFrame extends JFrame {
         }
         audioLine = null;
         audioThread = null;
+    }
+
+    /** 재생 라인의 음량을 0.0~1.0 비율로 설정함 (MASTER_GAIN을 dB로 환산). */
+    private void applyVolume(SourceDataLine line, float volume) {
+        if (line == null || !line.isControlSupported(FloatControl.Type.MASTER_GAIN)) return;
+        try {
+            FloatControl gain = (FloatControl) line.getControl(FloatControl.Type.MASTER_GAIN);
+            float dB;
+            if (volume <= 0f) {
+                dB = gain.getMinimum(); // 사실상 음소거
+            } else {
+                dB = (float) (20.0 * Math.log10(volume));
+                dB = Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB));
+            }
+            gain.setValue(dB);
+        } catch (Exception ignored) {
+            // 일부 장치는 음량 조절을 지원하지 않을 수 있음 — 무시
+        }
     }
 
     private void renderResultToUI(TranscriptResult result) {
