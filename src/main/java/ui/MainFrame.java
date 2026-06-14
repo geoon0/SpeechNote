@@ -9,10 +9,12 @@ import service.AuthService;
 import service.ExportService;
 import service.TranscriptionService;
 
+import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.Clip;
+import javax.sound.sampled.DataLine;
 import javax.sound.sampled.Mixer;
+import javax.sound.sampled.SourceDataLine;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
@@ -53,7 +55,9 @@ public class MainFrame extends JFrame {
     private CompletableFuture<TranscriptResult> currentTranscribeTask = null;
     private TranscriptResult currentDisplayedResult = null;
     private List<TranscriptResult> allHistory = new ArrayList<>();
-    private Clip currentClip = null;
+    private SourceDataLine audioLine = null;
+    private Thread audioThread = null;
+    private volatile boolean audioStopRequested = false;
     
     // Top Bar UI
     private JLabel titleLabel;
@@ -394,7 +398,7 @@ public class MainFrame extends JFrame {
                 }
             } catch (Exception ex) {
                 common.LoggerUtil.logError("비밀번호 변경 오류", ex);
-                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -408,14 +412,14 @@ public class MainFrame extends JFrame {
                 logout();
             } catch (Exception ex) {
                 common.LoggerUtil.logError("회원 탈퇴 오류", ex);
-                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
 
     private void logout() {
         flushMemo();
-        if (currentClip != null) currentClip.close();
+        stopPlaybackInternal();
         LoginFrame loginFrame = new LoginFrame();
         loginFrame.setVisible(true);
         this.dispose();
@@ -542,51 +546,81 @@ public class MainFrame extends JFrame {
                     JOptionPane.showMessageDialog(this, "수정된 원문이 성공적으로 저장되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception ex) {
                     common.LoggerUtil.logError("원문 저장 오류", ex);
-                    JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "오류가 발생했습니다: " + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
         // F-18: Play Audio
         playAudioBtn.addActionListener(e -> {
-            if (currentDisplayedResult != null && currentDisplayedResult.getAudioPath() != null) {
-                File audioFile = new File(currentDisplayedResult.getAudioPath());
-                if (audioFile.exists()) {
-                    try {
-                        if (currentClip != null && currentClip.isRunning()) {
-                            currentClip.stop();
-                        }
-                        AudioInputStream audioInputStream = AudioSystem.getAudioInputStream(audioFile);
-                        currentClip = AudioSystem.getClip();
-                        currentClip.open(audioInputStream);
-                        currentClip.start();
-                        playAudioBtn.setEnabled(false);
-                        stopAudioBtn.setEnabled(true);
+            if (currentDisplayedResult == null || currentDisplayedResult.getAudioPath() == null) return;
+            File audioFile = new File(currentDisplayedResult.getAudioPath());
+            if (!audioFile.exists()) {
+                JOptionPane.showMessageDialog(this, "오디오 파일을 찾을 수 없습니다: " + audioFile.getAbsolutePath(), "알림", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            try {
+                stopPlaybackInternal(); // 재생 중이던 것 정지
 
-                        currentClip.addLineListener(event -> {
-                            if (event.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
-                                SwingUtilities.invokeLater(() -> {
-                                    playAudioBtn.setEnabled(true);
-                                    stopAudioBtn.setEnabled(false);
-                                });
-                            }
-                        });
-                    } catch (Exception ex) {
-                        common.LoggerUtil.logError("오디오 재생 오류", ex);
-                        JOptionPane.showMessageDialog(this, "오디오 재생 중 오류: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
-                    }
-                } else {
-                    JOptionPane.showMessageDialog(this, "오디오 파일을 찾을 수 없습니다: " + audioFile.getAbsolutePath(), "알림", JOptionPane.WARNING_MESSAGE);
+                AudioInputStream rawAis = AudioSystem.getAudioInputStream(audioFile);
+                AudioFormat baseFormat = rawAis.getFormat();
+                // 녹음(16kHz)을 그대로 요청하면 일부 장치에서 라인을 못 잡으므로,
+                // 보편적으로 지원되는 44.1kHz PCM(little-endian)으로 변환해 SourceDataLine으로 스트리밍 재생한다.
+                AudioFormat playFormat = new AudioFormat(
+                        AudioFormat.Encoding.PCM_SIGNED, 44100f, 16,
+                        baseFormat.getChannels(), baseFormat.getChannels() * 2, 44100f, false);
+                DataLine.Info info = new DataLine.Info(SourceDataLine.class, playFormat);
+
+                // 출력 장치(재생 라인)가 아예 없으면 암호 같은 형식 오류 대신 안내 메시지
+                if (!AudioSystem.isLineSupported(info)) {
+                    rawAis.close();
+                    JOptionPane.showMessageDialog(this,
+                            "재생할 수 있는 오디오 출력 장치를 찾지 못했습니다.\n" +
+                            "스피커·헤드폰이 연결되어 Windows 기본 출력 장치로 설정돼 있는지 확인해 주세요.",
+                            "재생 불가", JOptionPane.WARNING_MESSAGE);
+                    return;
                 }
+
+                AudioInputStream playAis = AudioSystem.getAudioInputStream(playFormat, rawAis);
+                audioLine = (SourceDataLine) AudioSystem.getLine(info);
+                audioLine.open(playFormat);
+                audioLine.start();
+                audioStopRequested = false;
+                playAudioBtn.setEnabled(false);
+                stopAudioBtn.setEnabled(true);
+
+                final SourceDataLine line = audioLine;
+                audioThread = new Thread(() -> {
+                    byte[] buf = new byte[4096];
+                    try {
+                        int n;
+                        while (!audioStopRequested && (n = playAis.read(buf)) != -1) {
+                            line.write(buf, 0, n);
+                        }
+                        if (!audioStopRequested) line.drain();
+                    } catch (Exception ex) {
+                        common.LoggerUtil.logError("오디오 재생 스레드 오류", ex);
+                    } finally {
+                        try { line.stop(); line.close(); } catch (Exception ignored) {}
+                        try { playAis.close(); } catch (Exception ignored) {}
+                        SwingUtilities.invokeLater(() -> {
+                            playAudioBtn.setEnabled(currentDisplayedResult != null && currentDisplayedResult.getAudioPath() != null);
+                            stopAudioBtn.setEnabled(false);
+                        });
+                    }
+                }, "audio-playback");
+                audioThread.setDaemon(true);
+                audioThread.start();
+            } catch (Exception ex) {
+                common.LoggerUtil.logError("오디오 재생 오류", ex);
+                JOptionPane.showMessageDialog(this, "오디오 재생 중 오류:\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         });
 
         stopAudioBtn.addActionListener(e -> {
-            if (currentClip != null && currentClip.isRunning()) {
-                currentClip.stop();
-                playAudioBtn.setEnabled(true);
-                stopAudioBtn.setEnabled(false);
-            }
+            stopPlaybackInternal();
+            playAudioBtn.setEnabled(currentDisplayedResult != null && currentDisplayedResult.getAudioPath() != null);
+            stopAudioBtn.setEnabled(false);
         });
 
         newMemoBtn.addActionListener(e -> {
@@ -631,7 +665,8 @@ public class MainFrame extends JFrame {
                     JOptionPane.showMessageDialog(this, "새 메모가 성공적으로 저장되었습니다.", "저장 완료", JOptionPane.INFORMATION_MESSAGE);
                 }
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "메모 저장 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                common.LoggerUtil.logError("메모 저장 오류", ex);
+                JOptionPane.showMessageDialog(this, "메모 저장 실패:\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -684,7 +719,8 @@ public class MainFrame extends JFrame {
                 recordTimer.start();
                 
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "오류:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                common.LoggerUtil.logError("녹음 시작 오류", ex);
+                JOptionPane.showMessageDialog(this, "녹음을 시작할 수 없습니다:\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -836,10 +872,11 @@ public class MainFrame extends JFrame {
                 historyList.repaint();
                 JOptionPane.showMessageDialog(this, "요약 및 키워드 추출이 완료되었습니다.", "완료", JOptionPane.INFORMATION_MESSAGE);
             })).exceptionally(ex -> {
+                common.LoggerUtil.logError("LLM 요약/키워드 처리 오류", ex);
                 SwingUtilities.invokeLater(() -> {
                     progressBar.setVisible(false);
                     summarizeBtn.setEnabled(true);
-                    JOptionPane.showMessageDialog(this, "LLM 통신 오류:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "AI 요약·키워드 생성에 실패했습니다.\n\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
                 });
                 return null;
             });
@@ -1063,12 +1100,20 @@ public class MainFrame extends JFrame {
         }
     }
 
-    private void renderResultToUI(TranscriptResult result) {
-        if (currentClip != null && currentClip.isRunning()) {
-            currentClip.stop();
-            playAudioBtn.setEnabled(true);
-            stopAudioBtn.setEnabled(false);
+    /** 현재 재생 중인 오디오를 즉시 정지하고 라인을 닫음. */
+    private void stopPlaybackInternal() {
+        audioStopRequested = true;
+        SourceDataLine line = audioLine;
+        if (line != null) {
+            try { line.stop(); line.flush(); line.close(); } catch (Exception ignored) {}
         }
+        audioLine = null;
+        audioThread = null;
+    }
+
+    private void renderResultToUI(TranscriptResult result) {
+        stopPlaybackInternal();
+        stopAudioBtn.setEnabled(false);
 
         currentDisplayedResult = result;
         
@@ -1128,7 +1173,7 @@ public class MainFrame extends JFrame {
             }
         } catch (Exception ex) {
             common.LoggerUtil.logError("파일 저장 중 오류 발생", ex);
-            JOptionPane.showMessageDialog(this, "저장 중 오류가 발생했습니다:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "파일 저장 중 오류가 발생했습니다:\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -1141,8 +1186,7 @@ public class MainFrame extends JFrame {
         cancelBtn.setEnabled(false);
         resetUI();
         
-        String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-        JOptionPane.showMessageDialog(this, "오류:\n" + errorMsg, "에러", JOptionPane.ERROR_MESSAGE);
+        JOptionPane.showMessageDialog(this, "처리 중 오류가 발생했습니다.\n\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
     }
     
     private void addContextMenu(javax.swing.text.JTextComponent component) {
@@ -1192,7 +1236,8 @@ public class MainFrame extends JFrame {
                 updateHistoryList();
                 enableActions(false);
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "삭제 실패:\n" + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                common.LoggerUtil.logError("기록 삭제 오류", ex);
+                JOptionPane.showMessageDialog(this, "삭제에 실패했습니다:\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         }
     }

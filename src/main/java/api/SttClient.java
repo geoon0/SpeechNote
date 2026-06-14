@@ -74,14 +74,22 @@ public class SttClient {
                 logger.info("[SttClient] HTTP 응답 수신함. 상태 코드: " + status);
                 
                 if (status >= 400 && status < 500) {
-                    String errMsg = "입력 오류 (" + status + "): " + response.body();
-                    logger.warning("[SttClient] API 호출 오류 발생함. " + errMsg);
-                    throw new ApiException(errMsg); // 4xx는 재시도 없이 즉시 실패
+                    // 원본 응답 본문은 로그로만 남기고, 화면에는 사용자 친화적 메시지를 던짐
+                    logger.warning("[SttClient] STT 4xx 응답 (" + status + "): " + response.body());
+                    String friendly;
+                    if (status == 401 || status == 403) {
+                        friendly = "STT 서버 인증에 실패했습니다. 설정에서 API 주소·키를 확인해 주세요.";
+                    } else if (status == 413) {
+                        friendly = "오디오 파일이 너무 큽니다. 더 짧은 파일로 다시 시도해 주세요.";
+                    } else {
+                        friendly = "STT 요청이 거부되었습니다 (코드 " + status + "). 파일 형식이나 설정을 확인해 주세요.";
+                    }
+                    throw new ApiException(friendly); // 4xx는 재시도 없이 즉시 실패
                 } else if (status >= 500) {
-                    String errMsg = "서버 오류 (" + status + ")";
-                    logger.warning("[SttClient] API 서버 오류 발생함. " + errMsg);
+                    String errMsg = "STT 서버 오류 (" + status + ")가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+                    logger.warning("[SttClient] API 서버 오류 발생함. status=" + status);
                     if (attempt >= maxRetries) {
-                        throw new ApiException(errMsg + " - 최대 재시도 횟수 초과");
+                        throw new ApiException(errMsg);
                     }
                     // 재시도 대기 (1초 -> 2초)
                     Thread.sleep(1000 * attempt);

@@ -68,7 +68,7 @@ public class LoginFrame extends JFrame {
                 }
             } catch (Exception ex) {
                 common.LoggerUtil.logError("로그인 오류", ex);
-                JOptionPane.showMessageDialog(this, "오류: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "로그인 중 오류가 발생했습니다.\n" + common.UserError.friendly(ex), "오류", JOptionPane.ERROR_MESSAGE);
             }
         });
 

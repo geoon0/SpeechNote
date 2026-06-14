@@ -19,13 +19,12 @@
 
 - **기술 스택**: Java 11 · Maven · Swing/FlatLaf · SQLite(JDBC) · java.net.http · org.json · Apache POI · Git/GitHub
 
-## 0.3 팀 구성 및 GitHub
-- **팀 구성원**
+## 0.3 개발자 및 GitHub
+- **개발자 (1인)**
 
   | 이름 | 학번 | 역할 |
   | --- | --- | --- |
-  | 정의영 (팀장) | 20220505 | UI·DB·결과·관리 (출력측) |
-  | 민건영 | 20210598 | 입력·오디오·API (입력측) |
+  | 민건영 | 20210598 | 전체 개발 (입력·오디오·API · UI · DB · AI 연동) |
 
 - **GitHub 저장소**: https://github.com/jeyman2003-debug/SpeechNote
 - **평가자 등록**: 교수(`andy-yun`)를 저장소 **Collaborators**에 **Read** 권한으로 등록.

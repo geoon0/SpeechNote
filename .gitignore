@@ -26,3 +26,6 @@ src/main/resources/config.properties
 speechnote.db
 records/
 logs/
+
+# ===== 발표자 개인용 대본 (업로드 금지) =====
+발표대본.md

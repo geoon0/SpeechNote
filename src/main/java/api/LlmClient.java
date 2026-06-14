@@ -84,7 +84,7 @@ public class LlmClient {
                 throw new ApiException(buildErrorMessage(response.statusCode(), response.body()));
             }
         } catch (IOException | InterruptedException e) {
-            throw new ApiException("LLM 통신 중 오류 발생: " + e.getMessage());
+            throw new ApiException("AI 서버(LLM) 통신 중 오류가 발생했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.", e);
         }
     }
 
