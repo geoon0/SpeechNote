@@ -1131,12 +1131,16 @@ public class MainFrame extends JFrame {
         if (line == null || !line.isControlSupported(FloatControl.Type.MASTER_GAIN)) return;
         try {
             FloatControl gain = (FloatControl) line.getControl(FloatControl.Type.MASTER_GAIN);
+            float minGain = gain.getMinimum();
+            float maxGain = gain.getMaximum();
             float dB;
             if (volume <= 0f) {
-                dB = gain.getMinimum(); // 사실상 음소거
+                dB = minGain; // 음소거
+            } else if (volume >= 1f) {
+                dB = maxGain; // 최대 볼륨
             } else {
-                dB = (float) (20.0 * Math.log10(volume));
-                dB = Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB));
+                // 슬라이더 값(volume)에 비례해 dB가 선형적으로 변하도록 설정 (체감상 자연스러운 볼륨 조절)
+                dB = minGain + (maxGain - minGain) * volume;
             }
             gain.setValue(dB);
         } catch (Exception ignored) {
