@@ -1,0 +1,31 @@
+# ===== 빌드 결과물 =====
+target/
+*.class
+*.jar
+*.war
+bin/
+out/
+
+# ===== IDE / 에디터 설정 =====
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# ===== OS 생성 파일 =====
+.DS_Store
+Thumbs.db
+
+# ===== 비밀 정보 / API 키 (업로드 절대 금지!) =====
+config.properties
+src/main/resources/config.properties
+
+# ===== 런타임 산출물 / 로컬 DB / 로그 =====
+speechnote.db
+records/
+logs/
+
+# ===== 발표자 개인용 대본 (업로드 금지) =====
+발표대본.md
