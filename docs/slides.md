@@ -5,7 +5,6 @@ paginate: true
 size: 16:9
 lang: ko
 header: 'SpeechNote — AI 음성 인식 메모장'
-footer: '2026 프로젝트 발표 · 민건영'
 style: |
   section {
     font-family: -apple-system, "Segoe UI", "Malgun Gothic", Roboto, sans-serif;
